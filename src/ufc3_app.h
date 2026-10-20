@@ -9,11 +9,15 @@
 #include <rex/rex_app.h>
 #include <rex/system/gpu_plugin.h>
 
-// D3D12 is the default: at high resolution_scale the Vulkan backend ends the
-// render pass for every small shared-memory upload (this game streams vertex
-// data a page per draw), which drops scale 3 to ~47 FPS; D3D12 holds 60.
-REXCVAR_DEFINE_STRING(gpu_backend, "d3d12", "GPU",
+// Vulkan is the default (v1.0.1): with hoisted shared-memory uploads it holds
+// 60 and it doesn't black out while a fighter is rocked, which D3D12 does.
+// Without the hoist, Vulkan ends the render pass for every small upload (this
+// game streams vertex data a page per draw) and drops to ~47 FPS at scale 3.
+REXCVAR_DEFINE_STRING(gpu_backend, "vulkan", "GPU",
                       "Graphics backend: vulkan or d3d12");
+REXCVAR_DEFINE_BOOL(ufc3_vulkan_hoist, true, "ufc3",
+                    "Vulkan: batch shared-memory uploads at the start of each submission "
+                    "(sets vulkan_shared_memory_hoist_uploads; fixes the black screen while rocked)");
 
 class Ufc3App : public rex::ReXApp {
  public:
@@ -67,6 +71,10 @@ class Ufc3App : public rex::ReXApp {
     // in the GPU plugin, so set it after the plugin is loaded.
     if (!rex::cvar::SetFlagByName("gpu_allow_invalid_fetch_constants", "true")) {
       REXLOG_WARN("could not enable gpu_allow_invalid_fetch_constants");
+    }
+    if (REXCVAR_GET(ufc3_vulkan_hoist) &&
+        !rex::cvar::SetFlagByName("vulkan_shared_memory_hoist_uploads", "true")) {
+      REXLOG_WARN("could not enable vulkan_shared_memory_hoist_uploads");
     }
   }
 };

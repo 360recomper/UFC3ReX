@@ -11,7 +11,7 @@ for Xbox 360 as a disc image (`.iso`). DLC is optional and also comes from your 
 ## Features
 
 - Runs natively at any resolution (render scale up to 4K-class and beyond)
-- Direct3D 12 (default) or Vulkan
+- Vulkan (default) or Direct3D 12
 - **F4 in game:** quick settings and Quit
 - Bloom off and depth-of-field blur off (optional)
 - 60 fps cutscenes, walkouts and replays (optional)

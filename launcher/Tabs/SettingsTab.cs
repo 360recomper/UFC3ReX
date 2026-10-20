@@ -93,7 +93,7 @@ public class SettingsTab : ILauncherTab
         var t = new Toml();
         foreach (var (k, cb) in checks) cb.Checked = t.GetBool(k, (bool)cb.Tag!);
         scale.SelectedIndex = Math.Clamp(t.GetInt("resolution_scale", 1), 1, 4) - 1;
-        backend.SelectedIndex = t.GetStr("gpu_backend", "d3d12").Equals("vulkan", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        backend.SelectedIndex = t.GetStr("gpu_backend", "vulkan").Equals("vulkan", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
         cap.Value = Math.Clamp(t.GetInt("ufc3_roster_cap", 1024), 0, 4096);
         status.Text = File.Exists(Paths.Toml) ? "" : "ufc3.toml does not exist yet: it is created when you change something here.";
         loading = false;
