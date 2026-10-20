@@ -1,0 +1,31 @@
+# Build products
+/out/
+/dist/
+/launcher/bin/
+/launcher/obj/
+/launcher/publish/
+
+# Generated code derived from local game binaries
+/generated/
+
+# Local game files. Keep the note file.
+/assets/*
+!/assets/README.md
+
+# Game files, dumps and packages
+*.xex
+*.dll
+*.iso
+*.7z
+*.rar
+*.zip
+*.bin
+*.dmp
+*.pdb
+
+# Local data and logs
+/userdata/
+/mods/
+ufc3.toml
+*.log
+*.tmp

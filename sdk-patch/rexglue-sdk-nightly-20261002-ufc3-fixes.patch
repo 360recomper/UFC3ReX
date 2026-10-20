@@ -1,0 +1,2623 @@
+diff --git a/cmake/rexglue_fidelityfx.cmake b/cmake/rexglue_fidelityfx.cmake
+index af35fa8..58cc387 100644
+--- a/cmake/rexglue_fidelityfx.cmake
++++ b/cmake/rexglue_fidelityfx.cmake
+@@ -8,8 +8,12 @@ if(NOT REXGLUE_ENABLE_FIDELITYFX)
+     return()
+ endif()
+ 
++# CAS-only: just the headers + committed SPIR-V CAS shaders (REX_HAS_FIDELITYFX_SDK).
++# Skips the FSR2/3 backend library, so no Vulkan SDK / glslc is needed.
++option(REXGLUE_FIDELITYFX_CAS_ONLY "FidelityFX: build only CAS sharpening (no FSR backend)" ON)
++
+ # ── Dependency validation ────────────────────────────────────────────────
+-if(NOT WIN32)
++if(NOT WIN32 AND NOT REXGLUE_FIDELITYFX_CAS_ONLY)
+     find_package(Vulkan QUIET)
+     if(NOT Vulkan_FOUND)
+         message(WARNING
+@@ -62,6 +66,11 @@ set(REXGLUE_FIDELITYFX_SOURCE_DIR "${fidelityfx_SOURCE_DIR}" CACHE INTERNAL
+     "Root of the fetched FidelityFX SDK source tree")
+ 
+ # ── Backend selection ────────────────────────────────────────────────────
++if(REXGLUE_FIDELITYFX_CAS_ONLY)
++    message(STATUS "FidelityFX: CAS-only mode (no FSR backend library)")
++    return()
++endif()
++
+ set(REXGLUE_FIDELITYFX_BACKEND "auto" CACHE STRING
+     "FidelityFX backend to build (auto, vk, dx12)")
+ set_property(CACHE REXGLUE_FIDELITYFX_BACKEND PROPERTY STRINGS auto vk dx12)
+diff --git a/include/rex/audio/audio_driver.h b/include/rex/audio/audio_driver.h
+index 37ccbf2..269003e 100644
+--- a/include/rex/audio/audio_driver.h
++++ b/include/rex/audio/audio_driver.h
+@@ -11,11 +11,17 @@
+ 
+ #pragma once
+ 
++#include <atomic>
++
+ #include <rex/kernel.h>
+ #include <rex/memory.h>
+ 
+ namespace rex::audio {
+ 
++/// Set by the app (e.g. on window focus loss) to silence output without
++/// stopping the guest audio thread.
++inline std::atomic<bool> g_audio_muted{false};
++
+ class AudioDriver {
+  public:
+   explicit AudioDriver(memory::Memory* memory);
+diff --git a/include/rex/audio/xma/context.h b/include/rex/audio/xma/context.h
+index 8426798..1d435ae 100644
+--- a/include/rex/audio/xma/context.h
++++ b/include/rex/audio/xma/context.h
+@@ -253,6 +253,7 @@ class XmaContext {
+   void Decode(XMA_CONTEXT_DATA* data);
+   void Consume(memory::RingBuffer* output_rb, const XMA_CONTEXT_DATA* data);
+   void UpdateLoopStatus(XMA_CONTEXT_DATA* data);
++  bool FlushCarry(const XMA_CONTEXT_DATA* data);
+   void ClearLocked(XMA_CONTEXT_DATA* data);
+   void ResetDecoderState();
+ 
+diff --git a/include/rex/filesystem/devices/host_path_device.h b/include/rex/filesystem/devices/host_path_device.h
+index 48100be..980ff9e 100644
+--- a/include/rex/filesystem/devices/host_path_device.h
++++ b/include/rex/filesystem/devices/host_path_device.h
+@@ -37,6 +37,12 @@ class HostPathDevice : public Device {
+   bool allow_share_delete() const { return allow_share_delete_; }
+   const std::filesystem::path& host_path() const { return host_path_; }
+ 
++  // Loose-file overlay: files under this directory replace same-named files in
++  // host_path (and new files are added). Must be set before Initialize().
++  void set_overlay_path(const std::filesystem::path& overlay_path) {
++    overlay_path_ = overlay_path;
++  }
++
+   const std::string& name() const override { return name_; }
+   uint32_t attributes() const override { return 0; }
+   uint32_t component_name_max_length() const override { return 255; }
+@@ -47,10 +53,11 @@ class HostPathDevice : public Device {
+   uint32_t bytes_per_sector() const override { return 0x200; }
+ 
+  private:
+-  void PopulateEntry(HostPathEntry* parent_entry);
++  void PopulateEntry(HostPathEntry* parent_entry, const std::filesystem::path& overlay_dir);
+ 
+   std::string name_;
+   std::filesystem::path host_path_;
++  std::filesystem::path overlay_path_;
+   std::unique_ptr<Entry> root_entry_;
+   bool read_only_;
+   bool allow_share_delete_;
+diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
+index 4d85a2b..83b9375 100644
+--- a/include/rex/graphics/shared_memory.h
++++ b/include/rex/graphics/shared_memory.h
+@@ -11,6 +11,8 @@
+  */
+ 
+ #include <cstdint>
++#include <memory>
++#include <unordered_map>
+ #include <mutex>
+ #include <utility>
+ #include <vector>
+@@ -140,6 +142,14 @@ class SharedMemory {
+   virtual bool UploadRanges(
+       const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges) = 0;
+ 
++  // Called at the end of every successful RequestRanges with the merged byte
++  // ranges the GPU is about to access in the current submission (uploaded or
++  // already valid), after UploadRanges.
++  virtual void RangesRequested(const std::vector<std::pair<uint32_t, uint32_t>>& ranges) {}
++
++  // Whether UploadRanges is being called for a speculative upload.
++  bool IsUploadingSpeculative() const { return uploading_speculative_; }
++
+  private:
+   memory::Memory& memory_;
+ 
+@@ -149,6 +159,18 @@ class SharedMemory {
+   uint32_t page_size_log2_;
+ 
+   bool EnsureHostGpuMemoryAllocated(uint32_t start, uint32_t length);
++  // Speculative uploads (shared_memory_speculative_upload): pages uploaded
++  // ahead of use without being marked valid or write-protected, with a copy of
++  // what was uploaded, so a later request can reuse the GPU copy if the page is
++  // unchanged.
++  bool IsPageSpeculative(uint32_t page) const;
++  void ValidateSpeculativePages(const std::vector<std::pair<uint32_t, uint32_t>>& ranges);
++  void CollectSpeculativeRanges();
++  std::vector<uint64_t> page_speculative_;
++  std::unordered_map<uint32_t, std::unique_ptr<uint8_t[]>> speculative_shadow_;
++  std::vector<std::pair<uint32_t, uint32_t>> speculative_ranges_;
++  std::vector<std::pair<uint32_t, uint32_t>> speculative_runs_;
++  bool uploading_speculative_ = false;
+   uint32_t host_gpu_memory_sparse_granularity_log2_ = UINT32_MAX;
+   std::vector<uint64_t> host_gpu_memory_sparse_allocated_;
+   uint32_t host_gpu_memory_sparse_allocations_ = 0;
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 696ff48..6480a5c 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -744,6 +744,9 @@ class VulkanCommandProcessor : public CommandProcessor {
+   struct VertexBufferState {
+     uint32_t address = UINT32_MAX;
+     uint32_t size = UINT32_MAX;
++    // Last submission whose shared memory read tracking knows about this
++    // buffer (vulkan_shared_memory_hoist_uploads).
++    uint64_t read_submission = UINT64_MAX;
+   };
+   std::array<VertexBufferState, 96> vertex_buffer_states_{};
+   uint64_t vertex_buffers_in_sync_[2] = {};
+diff --git a/include/rex/graphics/vulkan/shared_memory.h b/include/rex/graphics/vulkan/shared_memory.h
+index 104bdad..288b984 100644
+--- a/include/rex/graphics/vulkan/shared_memory.h
++++ b/include/rex/graphics/vulkan/shared_memory.h
+@@ -34,6 +34,17 @@ class VulkanSharedMemory : public SharedMemory {
+ 
+   void CompletedSubmissionUpdated();
+   void EndSubmission();
++  // vulkan_shared_memory_hoist_uploads: records the uploads moved to the start
++  // of the submission into the real command buffer, before the deferred one.
++  void RecordHoistedUploads(VkCommandBuffer command_buffer);
++
++  // vulkan_shared_memory_hoist_uploads: whether uploads may be hoisted, so GPU
++  // reads that skip RequestRanges (vertex buffers already in sync) must be
++  // reported with RangeReadByGpu.
++  bool hoists_uploads() const { return hoist_; }
++  // Notes that commands recorded so far in the current submission read this
++  // range, so later uploads changing it are not hoisted before them.
++  void RangeReadByGpu(uint32_t start, uint32_t length);
+ 
+   enum class Usage {
+     // Index buffer, vfetch, compute read, transfer source.
+@@ -55,6 +66,8 @@ class VulkanSharedMemory : public SharedMemory {
+ 
+   bool UploadRanges(const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges) override;
+ 
++  void RangesRequested(const std::vector<std::pair<uint32_t, uint32_t>>& ranges) override;
++
+  private:
+   void GetUsageMasks(Usage usage, VkPipelineStageFlags& stage_mask,
+                      VkAccessFlags& access_mask) const;
+@@ -72,6 +85,30 @@ class VulkanSharedMemory : public SharedMemory {
+ 
+   std::unique_ptr<ui::vulkan::VulkanUploadBufferPool> upload_buffer_pool_;
+   std::vector<VkBufferCopy> upload_regions_;
++
++  // vulkan_shared_memory_hoist_uploads. Games streaming vertex data a few KB per
++  // draw make every draw upload a page, and on Vulkan each upload ends the
++  // render pass. An upload can instead run at the start of the submission when
++  // the bytes it changes (against a CPU shadow of what was last uploaded) were
++  // not read by any earlier command of the submission, the page was not written
++  // by the GPU and not copied in-pass in it: earlier commands then see the same
++  // bytes either way.
++  bool hoist_ = false;
++  uint8_t* shadow_ = nullptr;
++  std::vector<uint8_t> shadow_valid_;
++  std::vector<uint64_t> page_read_submission_;
++  std::vector<uint16_t> page_read_first_;
++  std::vector<uint16_t> page_read_end_;
++  std::vector<uint64_t> page_no_hoist_submission_;
++  struct HoistedCopy {
++    VkBuffer source;
++    VkBufferCopy region;
++  };
++  std::vector<HoistedCopy> hoisted_copies_;
++  std::vector<std::pair<uint32_t, uint32_t>> upload_ranges_hoisted_;
++  std::vector<std::pair<uint32_t, uint32_t>> in_pass_page_ranges_;
++  bool UploadPagesToStaging(const std::vector<std::pair<uint32_t, uint32_t>>& page_ranges,
++                            bool hoisted);
+ };
+ 
+ }  // namespace rex::graphics::vulkan
+diff --git a/include/rex/input/input_system.h b/include/rex/input/input_system.h
+index 0c27eed..b3be30e 100644
+--- a/include/rex/input/input_system.h
++++ b/include/rex/input/input_system.h
+@@ -14,6 +14,7 @@
+ #include <atomic>
+ #include <bitset>
+ #include <memory>
++#include <mutex>
+ #include <utility>
+ #include <vector>
+ 
+@@ -42,6 +43,9 @@ class InputSystem : public system::IInputSystem {
+   void AddDriver(std::unique_ptr<InputDriver> driver);
+   void AttachWindow(rex::ui::Window* window);
+   void SetActiveCallback(std::function<bool()> callback);
++  /// Called from GetState (user 0) with the merged pad. Return true to hide
++  /// the pad from the game (state is zeroed), e.g. while an overlay owns it.
++  void SetPadHook(std::function<bool(const X_INPUT_GAMEPAD&)> hook);
+ 
+   /// Replaces any previous assignment. Call before the guest starts polling.
+   void SetDeviceAssignment(std::unique_ptr<DeviceAssignment> assignment);
+@@ -82,6 +86,7 @@ class InputSystem : public system::IInputSystem {
+   X_INPUT_VIBRATION ModifyVibrationLevel(const X_INPUT_VIBRATION* vibration) const;
+ 
+   rex::ui::Window* window_ = nullptr;
++  std::function<bool(const X_INPUT_GAMEPAD&)> pad_hook_;
+ 
+   std::vector<std::unique_ptr<InputDriver>> drivers_;
+ 
+@@ -101,6 +106,11 @@ class InputSystem : public system::IInputSystem {
+   std::atomic<int> ui_input_blockers_{0};
+   // Masked out per user until the guest sees them released.
+   std::array<uint16_t, kMaxGuestUsers> consumed_buttons_ = {};
++
++  // Guest threads call the XInput entry points concurrently, and each one
++  // rebuilds devices_ in RefreshDevices; unguarded, that corrupts the heap.
++  // Recursive in case a driver or assignment calls back into the system.
++  std::recursive_mutex devices_mutex_;
+ };
+ 
+ /// Create a default InputSystem with SDL + MnK + NOP drivers.
+diff --git a/include/rex/rex_app.h b/include/rex/rex_app.h
+index 9672d33..ab8f4b3 100644
+--- a/include/rex/rex_app.h
++++ b/include/rex/rex_app.h
+@@ -301,6 +301,8 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
+   std::unique_ptr<ui::Window> window_;
+   std::thread module_thread_;
+   std::atomic<bool> shutting_down_{false};
++  std::atomic<bool> pad_combo_down_{false};
++  std::function<void()> toggle_settings_;
+   std::unique_ptr<ui::ImmediateDrawer> immediate_drawer_;
+   std::unique_ptr<ui::ImGuiDrawer> imgui_drawer_;
+ 
+diff --git a/include/rex/system/info/file.h b/include/rex/system/info/file.h
+index ef0a9ad..3c133dc 100644
+--- a/include/rex/system/info/file.h
++++ b/include/rex/system/info/file.h
+@@ -65,7 +65,8 @@ struct X_FILE_BASIC_INFORMATION {
+   be<uint64_t> last_access_time;
+   be<uint64_t> last_write_time;
+   be<uint64_t> change_time;
+-  be<uint64_t> attributes;
++  be<uint32_t> attributes;  // ULONG FileAttributes
++  be<uint32_t> padding;
+ };
+ static_assert_size(X_FILE_BASIC_INFORMATION, 0x28);
+ 
+diff --git a/include/rex/system/xam/content_manager.h b/include/rex/system/xam/content_manager.h
+index 949d185..ec19afa 100644
+--- a/include/rex/system/xam/content_manager.h
++++ b/include/rex/system/xam/content_manager.h
+@@ -152,10 +152,13 @@ class ContentManager {
+                                                  const XCONTENT_AGGREGATE_DATA& data);
+ 
+   bool ContentExists(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data);
++  // seed_save_file: drop an empty placeholder save file into the package. Only for
++  // OPEN_EXISTING (load) requests; a save that creates its file would collide with it.
+   X_RESULT CreateContent(const std::string_view root_name, uint64_t xuid,
+-                         const XCONTENT_AGGREGATE_DATA& data);
++                         const XCONTENT_AGGREGATE_DATA& data, bool seed_save_file = false);
+   X_RESULT OpenContent(const std::string_view root_name, uint64_t xuid,
+-                       const XCONTENT_AGGREGATE_DATA& data, uint32_t& content_license);
++                       const XCONTENT_AGGREGATE_DATA& data, uint32_t& content_license,
++                       bool seed_save_file = false);
+   X_RESULT CloseContent(const std::string_view root_name);
+   X_RESULT GetContentThumbnail(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data,
+                                std::vector<uint8_t>* buffer);
+diff --git a/include/rex/ui/imgui_dialog.h b/include/rex/ui/imgui_dialog.h
+index a7ab6b3..de55ece 100644
+--- a/include/rex/ui/imgui_dialog.h
++++ b/include/rex/ui/imgui_dialog.h
+@@ -39,6 +39,10 @@ class ImGuiDialog {
+ 
+   void Draw();
+ 
++  // DLSS-UP-3: an idle dialog (e.g. an empty notification queue) does not need the
++  // UI to be repainted continuously at the monitor refresh rate.
++  virtual bool IsIdle() { return false; }
++
+  protected:
+   ImGuiDialog(ImGuiDrawer* imgui_drawer);
+ 
+diff --git a/include/rex/ui/imgui_drawer.h b/include/rex/ui/imgui_drawer.h
+index a570fa0..983fe09 100644
+--- a/include/rex/ui/imgui_drawer.h
++++ b/include/rex/ui/imgui_drawer.h
+@@ -12,6 +12,7 @@
+ #ifndef REX_UI_IMGUI_DRAWER_H_
+ #define REX_UI_IMGUI_DRAWER_H_
+ 
++#include <atomic>
+ #include <cstddef>
+ #include <cstdint>
+ #include <functional>
+@@ -40,6 +41,9 @@ class ImGuiDrawer : public WindowInputListener, public UIDrawer {
+   ~ImGuiDrawer();
+ 
+   ImGuiIO& GetIO();
++  // Latest pad state for ImGui navigation (thread-safe; call from any thread).
++  // active=false releases all pad keys and turns pad navigation off.
++  void SetGamepadInput(bool active, uint16_t buttons, int16_t lx, int16_t ly);
+ 
+   // Per-overlay styling, patched by the consumer in OnConfigureStyle.
+   Style& style() { return style_; }
+@@ -76,6 +80,10 @@ class ImGuiDrawer : public WindowInputListener, public UIDrawer {
+ 
+  private:
+   void Initialize();
++  void ApplyGamepadInput(ImGuiIO& io);
++  std::atomic<uint64_t> gamepad_packed_{0};  // bit 63 = active
++  uint16_t gamepad_prev_buttons_ = 0;
++  bool gamepad_prev_active_ = false;
+ 
+   void SetupFontTexture();
+ 
+diff --git a/include/rex/ui/overlay/achievement_toast.h b/include/rex/ui/overlay/achievement_toast.h
+index 7642601..135d7a5 100644
+--- a/include/rex/ui/overlay/achievement_toast.h
++++ b/include/rex/ui/overlay/achievement_toast.h
+@@ -35,6 +35,8 @@ class AchievementToastDialog : public AchievementNotificationDialog {
+   // Thread-safe: safe to call from any thread, including guest threads.
+   void Push(const rex::system::AchievementEvent& event) override;
+ 
++  bool IsIdle() override;
++
+  protected:
+   void OnDraw(ImGuiIO& io) override;
+ 
+diff --git a/include/rex/ui/overlay/settings_overlay.h b/include/rex/ui/overlay/settings_overlay.h
+index 5b80eac..f622e42 100644
+--- a/include/rex/ui/overlay/settings_overlay.h
++++ b/include/rex/ui/overlay/settings_overlay.h
+@@ -11,6 +11,7 @@
+  */
+ #pragma once
+ #include <filesystem>
++#include <functional>
+ #include <string>
+ #include <rex/ui/imgui_dialog.h>
+ 
+@@ -19,14 +20,27 @@ namespace rex::ui {
+ class SettingsDialog : public ImGuiDialog {
+  public:
+   // config_path: where "Save to config" writes (e.g. exe_dir / "app.toml")
+-  SettingsDialog(ImGuiDrawer* imgui_drawer, std::filesystem::path config_path);
++  // on_quit: called by the "Quit game" button (button hidden when empty)
++  SettingsDialog(ImGuiDrawer* imgui_drawer, std::filesystem::path config_path,
++                 std::function<void()> on_quit = {});
+   ~SettingsDialog();
+ 
++  // Called when the pad's B button is pressed with no popup open (close request).
++  void set_on_close(std::function<void()> fn) { on_close_ = std::move(fn); }
++
+  protected:
+   void OnDraw(ImGuiIO& io) override;
+ 
+  private:
++  void DrawQuickSettings();
++
+   std::filesystem::path config_path_;
++  std::function<void()> on_quit_;
++  std::function<void()> on_close_;
++  bool popup_open_prev_ = false;
++  bool pad_mode_ = false;  // last input was the pad: combos become cycle buttons
++  bool confirm_restore_ = false;
++  std::string save_status_;
+   char search_buf_[128] = {};
+   std::string selected_category_;
+   std::string capturing_bind_name_;
+diff --git a/src/audio/sdl/sdl_audio_driver.cpp b/src/audio/sdl/sdl_audio_driver.cpp
+index 20a2cd8..ac5e736 100644
+--- a/src/audio/sdl/sdl_audio_driver.cpp
++++ b/src/audio/sdl/sdl_audio_driver.cpp
+@@ -25,6 +25,8 @@
+ #include <SDL3/SDL.h>
+ 
+ REXCVAR_DEFINE_BOOL(audio_mute, false, "Audio", "Mute audio output");
++REXCVAR_DEFINE_BOOL(audio_level_log, false, "Audio",
++                    "Log the per-channel output peak level about once per second");
+ 
+ namespace rex::audio::sdl {
+ 
+@@ -124,6 +126,30 @@ void SDLAudioDriver::SubmitFrame(uint32_t frame_ptr) {
+ 
+   std::memcpy(output_frame, input_frame, frame_samples_ * sizeof(float));
+ 
++  if (REXCVAR_GET(audio_level_log)) {
++    // Frames are 6 sequential big-endian channels of 256 samples.
++    static float peaks[frame_channels_] = {};
++    static uint32_t frames = 0;
++    for (uint32_t c = 0; c < frame_channels_; ++c) {
++      for (uint32_t i = 0; i < channel_samples_; ++i) {
++        uint32_t bits;
++        std::memcpy(&bits, &output_frame[c * channel_samples_ + i], 4);
++        bits = _byteswap_ulong(bits);
++        float v;
++        std::memcpy(&v, &bits, 4);
++        peaks[c] = std::max(peaks[c], v < 0 ? -v : v);
++      }
++    }
++    if (++frames >= 188) {
++      REXAPU_INFO("[level] L={:.3f} R={:.3f} C={:.3f} LFE={:.3f} Ls={:.3f} Rs={:.3f}", peaks[0],
++                  peaks[1], peaks[2], peaks[3], peaks[4], peaks[5]);
++      frames = 0;
++      std::fill(std::begin(peaks), std::end(peaks), 0.0f);
++    }
++  }
++  if (g_audio_muted.load(std::memory_order_relaxed))
++    std::memset(output_frame, 0, frame_samples_ * sizeof(float));
++
+   static uint32_t sdl_submit_count = 0;
+   if (sdl_submit_count < 10) {
+     REXAPU_DEBUG("SDLAudioDriver::SubmitFrame: frame_ptr={:08X} queued_count={}", frame_ptr,
+diff --git a/src/audio/xma_context.cpp b/src/audio/xma_context.cpp
+index 11b83be..0652ff6 100644
+--- a/src/audio/xma_context.cpp
++++ b/src/audio/xma_context.cpp
+@@ -15,6 +15,7 @@
+ #include <rex/audio/xma/context.h>
+ #include <rex/audio/xma/decoder.h>
+ #include <rex/audio/xma/helpers.h>
++#include <rex/cvar.h>
+ #include <rex/dbg.h>
+ #include <rex/logging.h>
+ #include <rex/memory/ring_buffer.h>
+@@ -40,6 +41,11 @@ namespace rex::audio {
+ 
+ using stream::BitStream;
+ 
++REXCVAR_DEFINE_BOOL(xma_trace, false, "Audio",
++                    "Log XMA context stalls, buffer swaps and decode errors");
++
++#define XMA_TRACE(fmt, ...)                                                       do {                                                                              if (REXCVAR_GET(xma_trace)) REXAPU_INFO("xma[{}] " fmt, id(), ##__VA_ARGS__);   } while (0)
++
+ const uint32_t XmaContext::kBitsPerPacketHeader;
+ const uint32_t XmaContext::kOutputMaxSizeBytes;
+ 
+@@ -112,7 +118,7 @@ bool XmaContext::Work() {
+ 
+   // Consume-only context: no input, just drain remaining subframes.
+   if (data.IsConsumeOnlyContext()) {
+-    if (current_frame_remaining_subframes_ == 0) {
++    if (current_frame_remaining_subframes_ == 0 && !FlushCarry(&data)) {
+       return true;
+     }
+     Consume(&output_rb, &data);
+@@ -136,13 +142,35 @@ bool XmaContext::Work() {
+     Decode(&data);
+     Consume(&output_rb, &data);
+ 
+-    if (!data.IsAnyInputBufferValid() || data.error_status == 4) {
++    // Out of input: stop once the held-back final frame has been flushed and
++    // written, so the stream's last samples reach the output.
++    if (data.error_status == 4 ||
++        (!data.IsAnyInputBufferValid() && !carry_valid_ &&
++         current_frame_remaining_subframes_ == 0)) {
+       break;
+     }
+   }
+ 
+   data.output_buffer_write_offset = output_rb.write_offset() / kOutputBytesPerBlock;
+ 
++  if (REXCVAR_GET(xma_trace) &&
++      (data.error_status != initial_data.error_status ||
++       (initial_data.IsAnyInputBufferValid() && !data.IsAnyInputBufferValid()))) {
++    XMA_TRACE("work: err {}->{} v0 {}->{} v1 {}->{} cur={} off={} loop={} out w={} r={} blocks={}",
++              static_cast<uint32_t>(initial_data.error_status),
++              static_cast<uint32_t>(data.error_status),
++              static_cast<uint32_t>(initial_data.input_buffer_0_valid),
++              static_cast<uint32_t>(data.input_buffer_0_valid),
++              static_cast<uint32_t>(initial_data.input_buffer_1_valid),
++              static_cast<uint32_t>(data.input_buffer_1_valid),
++              static_cast<uint32_t>(data.current_buffer),
++              static_cast<uint32_t>(data.input_buffer_read_offset),
++              static_cast<uint32_t>(data.loop_count),
++              static_cast<uint32_t>(data.output_buffer_write_offset),
++              static_cast<uint32_t>(data.output_buffer_read_offset),
++              static_cast<uint32_t>(data.output_buffer_block_count));
++  }
++
+   if (output_rb.empty()) {
+     data.output_buffer_valid = 0;
+   }
+@@ -221,6 +249,7 @@ void XmaContext::Release() {
+   assert_true(is_allocated());
+ 
+   set_is_allocated(false);
++  XMA_TRACE("release");
+   ResetDecoderState();
+   auto context_ptr = memory()->TranslateVirtual(guest_ptr());
+   std::memset(context_ptr, 0, sizeof(XMA_CONTEXT_DATA));
+@@ -525,14 +554,40 @@ bool XmaContext::DecodePacket(AVCodecContext* av_context, const AVPacket* av_pac
+   return true;
+ }
+ 
++bool XmaContext::FlushCarry(const XMA_CONTEXT_DATA* data) {
++  // The decode realignment holds each frame's tail back until the next frame
++  // arrives, so when the input runs dry the stream's final frame is still in
++  // carry_frame_. Emit it, padded with silence, as one last frame. Without
++  // this every stream ends a frame short, and games that wait for a voice to
++  // play out all of its samples (UFC 3's announcer chains its lines that way)
++  // wait forever.
++  if (!carry_valid_ || current_frame_remaining_subframes_ > 0) {
++    return false;
++  }
++  const size_t pad_bytes = kDecoderStartPadding * kBytesPerSample << data->is_stereo;
++  const size_t carry_bytes = (kBytesPerFrameChannel << data->is_stereo) - pad_bytes;
++  std::memcpy(raw_frame_.data(), carry_frame_.data(), carry_bytes);
++  std::memset(raw_frame_.data() + carry_bytes, 0, pad_bytes);
++  current_frame_remaining_subframes_ = 4 << data->is_stereo;
++  loop_frame_output_limit_ = pending_output_limit_;
++  current_frame_remaining_subframes_ -=
++      std::min(pending_start_skip_, current_frame_remaining_subframes_);
++  carry_valid_ = false;
++  pending_output_limit_ = 0;
++  pending_start_skip_ = 0;
++  XMA_TRACE("flushed final frame");
++  return true;
++}
++
+ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+   SCOPE_profile_cpu_f("apu");
+ 
+-  if (!data->IsAnyInputBufferValid()) {
++  if (current_frame_remaining_subframes_ > 0) {
+     return;
+   }
+ 
+-  if (current_frame_remaining_subframes_ > 0) {
++  if (!data->IsAnyInputBufferValid()) {
++    FlushCarry(data);
+     return;
+   }
+ 
+@@ -605,6 +660,11 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+   if (packet_info.current_frame_size_ == 0) {
+     const uint8_t* next_packet = GetNextPacket(data, next_packet_index, current_input_packet_count);
+     if (!next_packet) {
++      XMA_TRACE("split header, no next packet: off={} pkt={}/{} cur={} v0={} v1={} -> swap",
++                static_cast<uint32_t>(data->input_buffer_read_offset), packet_index,
++                current_input_packet_count, static_cast<uint32_t>(data->current_buffer),
++                static_cast<uint32_t>(data->input_buffer_0_valid),
++                static_cast<uint32_t>(data->input_buffer_1_valid));
+       SwapInputBuffer(data);
+       return;
+     }
+@@ -617,6 +677,7 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+ 
+     uint64_t frame_size = combined.Peek(kBitsPerFrameHeader);
+     if (frame_size == xma::kMaxFrameLength) {
++      XMA_TRACE("split header is end marker -> err4");
+       data->error_status = 4;
+       return;
+     }
+@@ -640,6 +701,11 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+       const uint8_t* next_packet =
+           GetNextPacket(data, next_packet_index, current_input_packet_count);
+       if (!next_packet) {
++        XMA_TRACE("split frame, no next packet: off={} pkt={}/{} cur={} v0={} v1={} -> err4",
++                  static_cast<uint32_t>(data->input_buffer_read_offset), packet_index,
++                  current_input_packet_count, static_cast<uint32_t>(data->current_buffer),
++                  static_cast<uint32_t>(data->input_buffer_0_valid),
++                  static_cast<uint32_t>(data->input_buffer_1_valid));
+         data->error_status = 4;
+         return;
+       }
+@@ -704,6 +770,8 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+     pending_output_limit_ = decoded_output_limit;
+     pending_start_skip_ = decoded_start_skip;
+   } else {
++    XMA_TRACE("decode failed: off={} size={}", static_cast<uint32_t>(data->input_buffer_read_offset),
++              packet_info.current_frame_size_);
+     // A dropped frame breaks the carry's adjacency; re-prime rather than splice
+     // two blocks that are not neighbors.
+     carry_valid_ = false;
+diff --git a/src/core/cvar.cpp b/src/core/cvar.cpp
+index 228728d..63d98dc 100644
+--- a/src/core/cvar.cpp
++++ b/src/core/cvar.cpp
+@@ -14,6 +14,7 @@
+ #include <fstream>
+ #include <mutex>
+ #include <optional>
++#include <sstream>
+ #include <string_view>
+ #include <unordered_map>
+ 
+@@ -137,6 +138,22 @@ void ApplyTomlTable(const toml::table& table, const std::string& prefix) {
+   }
+ }
+ 
++// Flattens a config table the way ApplyTomlTable keys it, keeping each value
++// as TOML text so SaveConfig can write it back unchanged.
++void CollectTomlText(const toml::table& table, const std::string& prefix,
++                     std::vector<std::pair<std::string, std::string>>& out) {
++  for (const auto& [key, value] : table) {
++    std::string full_key = prefix.empty() ? std::string(key) : prefix + "_" + std::string(key);
++    if (value.is_table()) {
++      CollectTomlText(*value.as_table(), full_key, out);
++    } else if (!value.is_array()) {
++      std::ostringstream text;
++      value.visit([&text](const auto& node) { text << node; });
++      out.emplace_back(std::move(full_key), text.str());
++    }
++  }
++}
++
+ // todo(tomc): move restart manager to Runtime
+ std::vector<std::string>& GetPendingRestartStorage() {
+   static std::vector<std::string> pending;
+@@ -691,7 +708,51 @@ bool IsFinalized() {
+ }
+ 
+ void SaveConfig(const std::filesystem::path& config_path) {
+-  std::string content = SerializeToTOML();
++  // What the file holds now. A cvar set only for this launch (command line or
++  // environment) keeps that saved value instead of persisting the override, and
++  // keys no cvar claims are carried over rather than dropped.
++  std::vector<std::pair<std::string, std::string>> on_disk;
++  if (std::filesystem::exists(config_path)) {
++    try {
++      CollectTomlText(toml::parse_file(config_path.string()), "", on_disk);
++    } catch (const toml::parse_error& err) {
++      REXLOG_WARN("SaveConfig: ignoring unparsable {}: {}", config_path.string(), err.what());
++    }
++  }
++  auto saved_text = [&on_disk](const std::string& name) -> const std::string* {
++    for (const auto& [key, text] : on_disk) {
++      if (key == name) {
++        return &text;
++      }
++    }
++    return nullptr;
++  };
++
++  std::string content;
++  {
++    std::lock_guard lock(GetRegistryMutex());
++    for (const auto& entry : GetRegistryStorage()) {
++      if (entry.source == Source::kCommandLine || entry.source == Source::kEnvironment) {
++        if (const std::string* text = saved_text(entry.name)) {
++          content += entry.name + " = " + *text + "\n";
++        }
++        continue;
++      }
++      if (entry.getter() == entry.default_value) {
++        continue;
++      }
++      if (entry.type == FlagType::String) {
++        content += entry.name + " = \"" + entry.getter() + "\"\n";
++      } else {
++        content += entry.name + " = " + entry.getter() + "\n";
++      }
++    }
++    for (const auto& [key, text] : on_disk) {
++      if (GetRegistryIndex().find(key) == GetRegistryIndex().end()) {
++        content += key + " = " + text + "\n";
++      }
++    }
++  }
+   if (content.empty()) {
+     REXLOG_DEBUG("SaveConfig: no modified flags to save");
+     return;
+diff --git a/src/core/filesystem_win.cpp b/src/core/filesystem_win.cpp
+index c5a2c5d..7c19a61 100644
+--- a/src/core/filesystem_win.cpp
++++ b/src/core/filesystem_win.cpp
+@@ -43,9 +43,20 @@ std::filesystem::path to_path(const std::u16string_view source) {
+ namespace filesystem {
+ 
+ std::filesystem::path GetExecutablePath() {
+-  wchar_t* path;
+-  auto error = _get_wpgmptr(&path);
+-  return !error ? std::filesystem::path(path) : std::filesystem::path();
++  // _get_wpgmptr only works in wide-entry (wmain/wWinMain) programs; in a narrow main()
++  // program such as rexglue.exe codegen it trips the CRT invalid-parameter handler (0xC0000409).
++  std::wstring path(MAX_PATH, L'\0');
++  for (;;) {
++    DWORD len = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
++    if (len == 0) {
++      return std::filesystem::path();
++    }
++    if (len < path.size()) {
++      path.resize(len);
++      return std::filesystem::path(path);
++    }
++    path.resize(path.size() * 2);
++  }
+ }
+ 
+ std::filesystem::path GetExecutableFolder() {
+diff --git a/src/filesystem/devices/host_path_device.cpp b/src/filesystem/devices/host_path_device.cpp
+index f68b79a..6928358 100644
+--- a/src/filesystem/devices/host_path_device.cpp
++++ b/src/filesystem/devices/host_path_device.cpp
+@@ -46,7 +46,16 @@ bool HostPathDevice::Initialize() {
+   auto root_entry = new HostPathEntry(this, nullptr, "", host_path_);
+   root_entry->attributes_ = kFileAttributeDirectory;
+   root_entry_ = std::unique_ptr<Entry>(root_entry);
+-  PopulateEntry(root_entry);
++  std::filesystem::path overlay_dir;
++  if (!overlay_path_.empty()) {
++    if (std::filesystem::is_directory(overlay_path_)) {
++      overlay_dir = overlay_path_;
++      REXFS_INFO("Mods overlay enabled: {}", rex::path_to_utf8(overlay_path_));
++    } else {
++      REXFS_INFO("Mods overlay folder not found, skipping: {}", rex::path_to_utf8(overlay_path_));
++    }
++  }
++  PopulateEntry(root_entry, overlay_dir);
+ 
+   return true;
+ }
+@@ -113,15 +122,55 @@ Entry* HostPathDevice::ResolvePath(const std::string_view path) {
+   return current_entry;
+ }
+ 
+-void HostPathDevice::PopulateEntry(HostPathEntry* parent_entry) {
++void HostPathDevice::PopulateEntry(HostPathEntry* parent_entry,
++                                   const std::filesystem::path& overlay_dir) {
++  using Type = rex::filesystem::FileInfo::Type;
+   auto child_infos = rex::filesystem::ListFiles(parent_entry->host_path());
+   for (auto& child_info : child_infos) {
+-    auto child = HostPathEntry::Create(this, parent_entry,
+-                                       parent_entry->host_path() / child_info.name, child_info);
++    auto host_file = parent_entry->host_path() / child_info.name;
++    auto info = child_info;
++    std::filesystem::path child_overlay;
++    if (!overlay_dir.empty()) {
++      auto overlay_file = overlay_dir / child_info.name;
++      rex::filesystem::FileInfo overlay_info;
++      if (rex::filesystem::GetInfo(overlay_file, &overlay_info) && overlay_info.type == child_info.type) {
++        if (child_info.type == Type::kDirectory) {
++          child_overlay = overlay_file;
++        } else {
++          REXFS_INFO("Mods overlay: {} -> {}", rex::path_to_utf8(host_file),
++                     rex::path_to_utf8(overlay_file));
++          host_file = overlay_file;
++          overlay_info.name = child_info.name;
++          info = overlay_info;
++        }
++      }
++    }
++    auto child = HostPathEntry::Create(this, parent_entry, host_file, info);
+     parent_entry->children_.push_back(std::unique_ptr<Entry>(child));
+ 
+-    if (child_info.type == rex::filesystem::FileInfo::Type::kDirectory) {
+-      PopulateEntry(child);
++    if (child_info.type == Type::kDirectory) {
++      PopulateEntry(child, child_overlay);
++    }
++  }
++
++  // Files/folders that exist only in the overlay are added as new entries.
++  if (overlay_dir.empty()) {
++    return;
++  }
++  for (auto& overlay_info : rex::filesystem::ListFiles(overlay_dir)) {
++    auto name = rex::path_to_utf8(overlay_info.name);
++    bool in_base = std::any_of(child_infos.begin(), child_infos.end(), [&](const auto& info) {
++      return rex::string::utf8_equal_case(rex::path_to_utf8(info.name), name);
++    });
++    if (in_base) {
++      continue;
++    }
++    auto overlay_file = overlay_dir / overlay_info.name;
++    REXFS_INFO("Mods overlay: added {}", rex::path_to_utf8(overlay_file));
++    auto child = HostPathEntry::Create(this, parent_entry, overlay_file, overlay_info);
++    parent_entry->children_.push_back(std::unique_ptr<Entry>(child));
++    if (overlay_info.type == Type::kDirectory) {
++      PopulateEntry(child, {});
+     }
+   }
+ }
+diff --git a/src/filesystem/devices/host_path_file.cpp b/src/filesystem/devices/host_path_file.cpp
+index 4c57a18..8688538 100644
+--- a/src/filesystem/devices/host_path_file.cpp
++++ b/src/filesystem/devices/host_path_file.cpp
+@@ -1,4 +1,4 @@
+-/**
++﻿/**
+  ******************************************************************************
+  * Xenia : Xbox 360 Emulator Research Project                                 *
+  ******************************************************************************
+@@ -12,6 +12,12 @@
+ #include <rex/filesystem/devices/host_path_entry.h>
+ #include <rex/filesystem/devices/host_path_file.h>
+ 
++#include <rex/cvar.h>
++#include <rex/logging.h>
++#include <rex/filesystem.h>
++
++REXCVAR_DEFINE_BOOL(log_file_reads, false, "Runtime", "Log every game file read (path, offset, size)");
++
+ namespace rex::filesystem {
+ 
+ HostPathFile::HostPathFile(uint32_t file_access, HostPathEntry* entry,
+@@ -30,6 +36,11 @@ X_STATUS HostPathFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offset,
+     return X_STATUS_ACCESS_DENIED;
+   }
+ 
++  if (REXCVAR_GET(log_file_reads)) {
++    REXFS_INFO("read {} @0x{:X} size 0x{:X}",
++               rex::path_to_utf8(static_cast<HostPathEntry*>(entry_)->host_path()), byte_offset,
++               buffer.size());
++  }
+   if (file_handle_->Read(byte_offset, buffer.data(), buffer.size(), out_bytes_read)) {
+     return X_STATUS_SUCCESS;
+   } else {
+diff --git a/src/filesystem/virtual_file_system.cpp b/src/filesystem/virtual_file_system.cpp
+index 682b23d..bfa4d79 100644
+--- a/src/filesystem/virtual_file_system.cpp
++++ b/src/filesystem/virtual_file_system.cpp
+@@ -234,11 +234,12 @@ X_STATUS VirtualFileSystem::OpenFile(Entry* root_entry, const std::string_view p
+       return X_STATUS_FILE_IS_A_DIRECTORY;
+     }
+ 
+-    // If the cached entry does not exist on host anymore, invalidate it.
++    // If the cached entry does not exist on host anymore, invalidate it. Check the entry's
++    // own host path: a mods-overlay file lives in the overlay folder, not under its parent's.
+     if (parent_entry) {
+-      const auto* host_path_entry = dynamic_cast<const HostPathEntry*>(parent_entry);
++      const auto* host_path_entry = dynamic_cast<const HostPathEntry*>(entry);
+       if (host_path_entry) {
+-        const auto file_path = host_path_entry->host_path() / rex::to_path(entry->name());
++        const auto& file_path = host_path_entry->host_path();
+         if (!std::filesystem::exists(file_path)) {
+           entry->Delete();
+           entry = nullptr;
+diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
+index ec0df7c..e295812 100644
+--- a/src/graphics/shared_memory.cpp
++++ b/src/graphics/shared_memory.cpp
+@@ -15,11 +15,19 @@
+ 
+ #include <rex/assert.h>
+ #include <rex/bit.h>
++#include <rex/cvar.h>
+ #include <rex/dbg.h>
+ #include <rex/graphics/shared_memory.h>
+ #include <rex/math.h>
+ #include <rex/memory.h>
+ 
++REXCVAR_DEFINE_BOOL(shared_memory_speculative_upload, true, "GPU",
++                    "When a draw needs CPU-modified guest memory, also upload the following "
++                    "CPU-modified pages of the same 256 KB block without write-protecting them, "
++                    "and reuse that copy if a later draw finds the page unchanged. Games that "
++                    "stream vertex data a few KB per draw otherwise cause one upload (and on "
++                    "Vulkan, a render pass restart) per draw.");
++
+ namespace rex::graphics {
+ 
+ SharedMemory::SharedMemory(memory::Memory& memory) : memory_(memory) {
+@@ -34,6 +42,7 @@ void SharedMemory::InitializeCommon() {
+   num_system_page_flags_ = ((kBufferSize >> page_size_log2_) + 63) / 64;
+   system_page_flags_valid_.assign(num_system_page_flags_, 0);
+   system_page_flags_valid_and_gpu_written_.assign(num_system_page_flags_, 0);
++  page_speculative_.assign(num_system_page_flags_, 0);
+ 
+   memory_invalidation_callback_handle_ =
+       memory_.RegisterPhysicalMemoryInvalidationCallback(MemoryInvalidationCallbackThunk, this);
+@@ -291,6 +300,25 @@ void SharedMemory::MakeRangeValid(uint32_t start, uint32_t length, bool written_
+   uint32_t valid_block_first = valid_page_first >> 6;
+   uint32_t valid_block_last = valid_page_last >> 6;
+ 
++  if (uploading_speculative_) {
++    // Called by UploadRanges for a speculative upload: keep the pages invalid
++    // and unprotected, and remember what is being uploaded. The copy is taken
++    // before UploadRanges reads guest memory, so if the CPU writes in between,
++    // the GPU copy is newer than the shadow, and the comparison in
++    // ValidateSpeculativePages fails safe (reupload).
++    const size_t page_size = size_t(1) << page_size_log2_;
++    auto global_lock = global_critical_region_.Acquire();
++    for (uint32_t page = valid_page_first; page <= valid_page_last; ++page) {
++      std::unique_ptr<uint8_t[]>& shadow = speculative_shadow_[page];
++      if (!shadow) {
++        shadow = std::make_unique<uint8_t[]>(page_size);
++      }
++      std::memcpy(shadow.get(), memory().TranslatePhysical(page << page_size_log2_), page_size);
++      page_speculative_[page >> 6] |= uint64_t(1) << (page & 63);
++    }
++    return;
++  }
++
+   {
+     auto global_lock = global_critical_region_.Acquire();
+ 
+@@ -303,6 +331,7 @@ void SharedMemory::MakeRangeValid(uint32_t start, uint32_t length, bool written_
+         valid_bits &= (uint64_t(1) << ((valid_page_last & 63) + 1)) - 1;
+       }
+       system_page_flags_valid_[i] |= valid_bits;
++      page_speculative_[i] &= ~valid_bits;
+       uint64_t& gpu_written = system_page_flags_valid_and_gpu_written_[i];
+       gpu_written = written_by_gpu ? (gpu_written | valid_bits) : (gpu_written & ~valid_bits);
+     }
+@@ -389,6 +418,11 @@ bool SharedMemory::RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, si
+     }
+   }
+ 
++  bool speculative = REXCVAR_GET(shared_memory_speculative_upload);
++  if (speculative) {
++    ValidateSpeculativePages(merged_ranges);
++  }
++
+   upload_ranges_.clear();
+   auto append_upload_range = [this](uint32_t page_start, uint32_t page_count) {
+     if (!page_count) {
+@@ -462,10 +496,129 @@ bool SharedMemory::RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, si
+                     uint32_t(upload_ranges_.size()));
+ 
+   if (upload_ranges_.empty()) {
++    RangesRequested(merged_ranges);
+     return true;
+   }
+ 
+-  return UploadRanges(upload_ranges_);
++  if (!UploadRanges(upload_ranges_)) {
++    return false;
++  }
++  if (speculative) {
++    // The upload already interrupted rendering; upload what the following
++    // draws are likely to need in the same go.
++    CollectSpeculativeRanges();
++    if (!speculative_ranges_.empty()) {
++      uploading_speculative_ = true;
++      UploadRanges(speculative_ranges_);
++      uploading_speculative_ = false;
++    }
++  }
++  RangesRequested(merged_ranges);
++  return true;
++}
++
++bool SharedMemory::IsPageSpeculative(uint32_t page) const {
++  return ((page_speculative_[page >> 6] & ~system_page_flags_valid_[page >> 6]) >> (page & 63)) &
++         1;
++}
++
++void SharedMemory::ValidateSpeculativePages(
++    const std::vector<std::pair<uint32_t, uint32_t>>& ranges) {
++  // Find the speculatively uploaded pages in the requested ranges, scanning
++  // whole 64-page blocks (requests can span the entire buffer).
++  speculative_runs_.clear();
++  {
++    auto global_lock = global_critical_region_.Acquire();
++    for (const std::pair<uint32_t, uint32_t>& range : ranges) {
++      uint32_t page_first = range.first >> page_size_log2_;
++      uint32_t page_last = (range.first + range.second - 1) >> page_size_log2_;
++      for (uint32_t i = page_first >> 6; i <= page_last >> 6; ++i) {
++        uint64_t mask = page_speculative_[i] & ~system_page_flags_valid_[i];
++        if (!mask) {
++          continue;
++        }
++        if (i == page_first >> 6) {
++          mask &= ~((uint64_t(1) << (page_first & 63)) - 1);
++        }
++        if (i == page_last >> 6 && (page_last & 63) != 63) {
++          mask &= (uint64_t(1) << ((page_last & 63) + 1)) - 1;
++        }
++        uint32_t bit;
++        while (rex::bit_scan_forward(mask, &bit)) {
++          mask &= mask - 1;
++          uint32_t page = (i << 6) + bit;
++          if (!speculative_runs_.empty() &&
++              speculative_runs_.back().first + speculative_runs_.back().second == page) {
++            ++speculative_runs_.back().second;
++          } else {
++            speculative_runs_.emplace_back(page, 1);
++          }
++        }
++      }
++    }
++  }
++  const size_t page_size = size_t(1) << page_size_log2_;
++  for (const std::pair<uint32_t, uint32_t>& run : speculative_runs_) {
++    // Arm the write watch before comparing, so a CPU write after the
++    // comparison invalidates the page again.
++    MakeRangeValid(run.first << page_size_log2_, run.second << page_size_log2_, false);
++    for (uint32_t page = run.first; page < run.first + run.second; ++page) {
++      auto it = speculative_shadow_.find(page);
++      if (it == speculative_shadow_.end() ||
++          std::memcmp(it->second.get(), memory().TranslatePhysical(page << page_size_log2_),
++                      page_size)) {
++        auto global_lock = global_critical_region_.Acquire();
++        system_page_flags_valid_[page >> 6] &= ~(uint64_t(1) << (page & 63));
++      }
++    }
++  }
++}
++
++void SharedMemory::CollectSpeculativeRanges() {
++  // Pages following each upload in its 64-page block that are also invalid
++  // (CPU-side invalidation happens at this granularity, see
++  // MemoryInvalidationCallback).
++  speculative_ranges_.clear();
++  const uint32_t page_count = kBufferSize >> page_size_log2_;
++  {
++    auto global_lock = global_critical_region_.Acquire();
++    for (size_t i = 0; i < upload_ranges_.size(); ++i) {
++      uint32_t start = upload_ranges_[i].first + upload_ranges_[i].second;
++      uint32_t limit = std::min((start + 63) & ~uint32_t(63), page_count);
++      if (i + 1 < upload_ranges_.size()) {
++        limit = std::min(limit, upload_ranges_[i + 1].first);
++      }
++      uint32_t end = start;
++      while (end < limit && !((system_page_flags_valid_[end >> 6] >> (end & 63)) & 1) &&
++             !IsPageSpeculative(end)) {
++        ++end;
++      }
++      if (end > start) {
++        speculative_ranges_.emplace_back(start, end - start);
++      }
++    }
++  }
++  // Invalid pages may also be never-allocated guest memory: only keep the
++  // allocated, readable prefix of each range (checked outside the global
++  // critical region, the guest heap has its own lock).
++  memory::BaseHeap* heap = memory().GetPhysicalHeap();
++  size_t kept = 0;
++  for (const std::pair<uint32_t, uint32_t>& range : speculative_ranges_) {
++    uint32_t length = 0;
++    while (length < range.second) {
++      uint32_t address = (range.first + length) << page_size_log2_;
++      if (heap->QueryRangeAccess(address, address + ((uint32_t(1) << page_size_log2_) - 1)) ==
++          rex::memory::PageAccess::kNoAccess) {
++        break;
++      }
++      ++length;
++    }
++    if (length && EnsureHostGpuMemoryAllocated(range.first << page_size_log2_,
++                                               length << page_size_log2_)) {
++      speculative_ranges_[kept++] = std::make_pair(range.first, length);
++    }
++  }
++  speculative_ranges_.resize(kept);
+ }
+ 
+ bool SharedMemory::RequestRange(uint32_t start, uint32_t length) {
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 001f36b..af3be6e 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -616,6 +616,7 @@ void VulkanCommandProcessor::InvalidateAllVertexBufferResidency() {
+   for (VertexBufferState& state : vertex_buffer_states_) {
+     state.address = UINT32_MAX;
+     state.size = UINT32_MAX;
++    state.read_submission = UINT64_MAX;
+   }
+ }
+ 
+@@ -3979,6 +3980,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+ 
+   // Ensure vertex buffers are resident.
+   const Shader::ConstantRegisterMap& constant_map_vertex = vertex_shader->constant_register_map();
++  const bool shared_memory_hoists_uploads = shared_memory_->hoists_uploads();
++  const uint64_t current_submission = GetCurrentSubmission();
+   for (uint32_t i = 0; i < rex::countof(constant_map_vertex.vertex_fetch_bitmap); ++i) {
+     uint32_t vfetch_bits_remaining = constant_map_vertex.vertex_fetch_bitmap[i];
+     uint32_t j;
+@@ -3987,6 +3990,15 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       uint32_t vfetch_index = i * 32 + j;
+       uint64_t vfetch_bit = uint64_t(1) << (vfetch_index & 63);
+       if (vertex_buffers_in_sync_[vfetch_index >> 6] & vfetch_bit) {
++        // Still read by this draw: with hoisted uploads, report the read once
++        // per submission, since the buffer is not requested again.
++        if (shared_memory_hoists_uploads) {
++          VertexBufferState& state = vertex_buffer_states_[vfetch_index];
++          if (state.read_submission != current_submission) {
++            state.read_submission = current_submission;
++            shared_memory_->RangeReadByGpu(state.address << 2, state.size << 2);
++          }
++        }
+         continue;
+       }
+       xenos::xe_gpu_vertex_fetch_t vfetch_constant = regs.GetVertexFetch(vfetch_index);
+@@ -4012,6 +4024,10 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       VertexBufferState& state = vertex_buffer_states_[vfetch_index];
+       if (state.address == vfetch_constant.address && state.size == vfetch_constant.size) {
+         vertex_buffers_in_sync_[vfetch_index >> 6] |= vfetch_bit;
++        if (shared_memory_hoists_uploads && state.read_submission != current_submission) {
++          state.read_submission = current_submission;
++          shared_memory_->RangeReadByGpu(state.address << 2, state.size << 2);
++        }
+         continue;
+       }
+       if (!shared_memory_->RequestRange(vfetch_constant.address << 2, vfetch_constant.size << 2)) {
+@@ -4023,6 +4039,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       }
+       state.address = vfetch_constant.address;
+       state.size = vfetch_constant.size;
++      // RequestRange reported the read.
++      state.read_submission = current_submission;
+       vertex_buffers_in_sync_[vfetch_index >> 6] |= vfetch_bit;
+     }
+   }
+@@ -5385,6 +5403,8 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+       REXGPU_ERROR("Failed to begin a Vulkan command buffer");
+       return false;
+     }
++    // Uploads hoisted to the start of the submission (vulkan_shared_memory_hoist_uploads).
++    shared_memory_->RecordHoistedUploads(command_buffer.buffer);
+     deferred_command_buffer_.Execute(command_buffer.buffer);
+     if (dfn.vkEndCommandBuffer(command_buffer.buffer) != VK_SUCCESS) {
+       REXGPU_ERROR("Failed to end a Vulkan command buffer");
+diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
+index 6788214..ef7c18e 100644
+--- a/src/graphics/vulkan/shared_memory.cpp
++++ b/src/graphics/vulkan/shared_memory.cpp
+@@ -27,6 +27,13 @@ REXCVAR_DEFINE_BOOL(vulkan_sparse_shared_memory, true, "GPU/Vulkan",
+                     "Use sparse shared memory on Vulkan")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
++REXCVAR_DEFINE_BOOL(vulkan_shared_memory_hoist_uploads, false, "GPU/Vulkan",
++                    "Move shared memory uploads to the start of the submission when that is "
++                    "safe (the changed bytes were not used earlier in it), so they do not end "
++                    "the render pass. Helps games that stream vertex data a few KB per draw. "
++                    "Keeps a CPU copy of uploaded pages (up to 512 MB, touched pages only).")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++
+ namespace rex::graphics::vulkan {
+ 
+ VulkanSharedMemory::VulkanSharedMemory(VulkanCommandProcessor& command_processor,
+@@ -161,6 +168,19 @@ bool VulkanSharedMemory::Initialize() {
+   last_usage_ = Usage::kTransferDestination;
+   last_written_range_ = std::make_pair<uint32_t, uint32_t>(0, 0);
+ 
++  if (REXCVAR_GET(vulkan_shared_memory_hoist_uploads)) {
++    hoist_ = true;
++    // Not value-initialized: untouched pages stay uncommitted.
++    shadow_ = new uint8_t[kBufferSize];
++    size_t page_count = size_t(kBufferSize >> page_size_log2());
++    shadow_valid_.assign(page_count, 0);
++    page_read_submission_.assign(page_count, 0);
++    page_read_first_.assign(page_count, 0);
++    page_read_end_.assign(page_count, 0);
++    page_no_hoist_submission_.assign(page_count, 0);
++    REXGPU_INFO("Shared memory: hoisted uploads on");
++  }
++
+   upload_buffer_pool_ = std::make_unique<ui::vulkan::VulkanUploadBufferPool>(
+       vulkan_device, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+       rex::align(ui::vulkan::VulkanUploadBufferPool::kDefaultPageSize, size_t(1)
+@@ -171,6 +191,10 @@ bool VulkanSharedMemory::Initialize() {
+ 
+ void VulkanSharedMemory::Shutdown(bool from_destructor) {
+   upload_buffer_pool_.reset();
++  hoisted_copies_.clear();
++  delete[] shadow_;
++  shadow_ = nullptr;
++  hoist_ = false;
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -201,6 +225,16 @@ void VulkanSharedMemory::Use(Usage usage, std::pair<uint32_t, uint32_t> written_
+   written_range.first = std::min(written_range.first, kBufferSize);
+   written_range.second = std::min(written_range.second, kBufferSize - written_range.first);
+   assert_true(usage != Usage::kRead || !written_range.second);
++  if (hoist_ && written_range.second && usage != Usage::kTransferDestination) {
++    // Written by the GPU: the shadow no longer matches, and an upload hoisted
++    // before this write would be overwritten by it.
++    uint64_t submission = command_processor_.GetCurrentSubmission();
++    uint32_t page_last = (written_range.first + written_range.second - 1) >> page_size_log2();
++    for (uint32_t page = written_range.first >> page_size_log2(); page <= page_last; ++page) {
++      shadow_valid_[page] = 0;
++      page_no_hoist_submission_[page] = submission;
++    }
++  }
+   if (last_usage_ != usage || last_written_range_.second) {
+     VkPipelineStageFlags src_stage_mask, dst_stage_mask;
+     VkAccessFlags src_access_mask, dst_access_mask;
+@@ -268,19 +302,150 @@ bool VulkanSharedMemory::AllocateSparseHostGpuMemoryRange(uint32_t offset_alloca
+   return true;
+ }
+ 
++void VulkanSharedMemory::RangesRequested(const std::vector<std::pair<uint32_t, uint32_t>>& ranges) {
++  if (!hoist_) {
++    return;
++  }
++  for (const std::pair<uint32_t, uint32_t>& range : ranges) {
++    RangeReadByGpu(range.first, range.second);
++  }
++}
++
++void VulkanSharedMemory::RangeReadByGpu(uint32_t start, uint32_t length) {
++  if (!hoist_ || start >= kBufferSize) {
++    return;
++  }
++  length = std::min(length, kBufferSize - start);
++  if (!length) {
++    return;
++  }
++  uint64_t submission = command_processor_.GetCurrentSubmission();
++  uint32_t page_size = uint32_t(1) << page_size_log2();
++  uint32_t range_end = start + length;
++  for (uint32_t page = start >> page_size_log2(); page <= ((range_end - 1) >> page_size_log2());
++       ++page) {
++    uint32_t page_start = page << page_size_log2();
++    uint32_t first = std::max(start, page_start) - page_start;
++    uint32_t end = std::min(range_end, page_start + page_size) - page_start;
++    if (page_read_submission_[page] == submission) {
++      page_read_first_[page] = uint16_t(std::min(uint32_t(page_read_first_[page]), first));
++      page_read_end_[page] = uint16_t(std::max(uint32_t(page_read_end_[page]), end));
++    } else {
++      page_read_submission_[page] = submission;
++      page_read_first_[page] = uint16_t(first);
++      page_read_end_[page] = uint16_t(end);
++    }
++  }
++}
++
++void VulkanSharedMemory::RecordHoistedUploads(VkCommandBuffer command_buffer) {
++  if (hoisted_copies_.empty()) {
++    return;
++  }
++  const ui::vulkan::VulkanDevice::Functions& dfn = command_processor_.GetVulkanDevice()->functions();
++  VkMemoryBarrier barrier;
++  barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
++  barrier.pNext = nullptr;
++  barrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
++  barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
++  dfn.vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
++                           VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
++  upload_regions_.clear();
++  for (size_t i = 0; i < hoisted_copies_.size(); ++i) {
++    upload_regions_.push_back(hoisted_copies_[i].region);
++    if (i + 1 == hoisted_copies_.size() ||
++        hoisted_copies_[i + 1].source != hoisted_copies_[i].source) {
++      dfn.vkCmdCopyBuffer(command_buffer, hoisted_copies_[i].source, buffer_,
++                          uint32_t(upload_regions_.size()), upload_regions_.data());
++      upload_regions_.clear();
++    }
++  }
++  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
++  barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
++  dfn.vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
++                           VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &barrier, 0, nullptr, 0,
++                           nullptr);
++  hoisted_copies_.clear();
++}
++
+ bool VulkanSharedMemory::UploadRanges(
+     const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges) {
+   if (upload_page_ranges.empty()) {
+     return true;
+   }
+-  // upload_page_ranges are sorted, use them to determine the range for the
+-  // ordering barrier.
+-  Use(Usage::kTransferDestination,
+-      std::make_pair(upload_page_ranges.front().first << page_size_log2(),
+-                     (upload_page_ranges.back().first + upload_page_ranges.back().second -
+-                      upload_page_ranges.front().first)
+-                         << page_size_log2()));
+-  command_processor_.SubmitBarriers(true);
++  if (!hoist_) {
++    return UploadPagesToStaging(upload_page_ranges, false);
++  }
++  uint64_t submission = command_processor_.GetCurrentSubmission();
++  const uint32_t page_size = uint32_t(1) << page_size_log2();
++  upload_ranges_hoisted_.clear();
++  in_pass_page_ranges_.clear();
++  auto append = [](std::vector<std::pair<uint32_t, uint32_t>>& ranges, uint32_t page) {
++    if (!ranges.empty() && ranges.back().first + ranges.back().second == page) {
++      ++ranges.back().second;
++    } else {
++      ranges.emplace_back(page, 1);
++    }
++  };
++  for (const std::pair<uint32_t, uint32_t>& range : upload_page_ranges) {
++    for (uint32_t page = range.first; page < range.first + range.second; ++page) {
++      uint32_t offset = page << page_size_log2();
++      // Protect first, so a CPU write during the comparison or the copy
++      // invalidates the page again.
++      MakeRangeValid(offset, page_size, false);
++      uint32_t first = 0, end = page_size;
++      if (shadow_valid_[page]) {
++        const uint8_t* guest = memory().TranslatePhysical(offset);
++        const uint8_t* shadow = shadow_ + offset;
++        first = page_size;
++        for (uint32_t i = 0; i < page_size; i += 8) {
++          if (std::memcmp(guest + i, shadow + i, 8)) {
++            first = i;
++            break;
++          }
++        }
++        if (first == page_size) {
++          // Same bytes as the last upload: nothing to do.
++          continue;
++        }
++        for (uint32_t i = page_size; i > first; i -= 8) {
++          if (std::memcmp(guest + i - 8, shadow + i - 8, 8)) {
++            end = i;
++            break;
++          }
++        }
++      }
++      bool hoist = page_no_hoist_submission_[page] != submission &&
++                   !(page_read_submission_[page] == submission && first < page_read_end_[page] &&
++                     page_read_first_[page] < end);
++      if (hoist) {
++        append(upload_ranges_hoisted_, page);
++      } else {
++        page_no_hoist_submission_[page] = submission;
++        append(in_pass_page_ranges_, page);
++      }
++    }
++  }
++  bool successful = true;
++  if (!upload_ranges_hoisted_.empty()) {
++    successful &= UploadPagesToStaging(upload_ranges_hoisted_, true);
++  }
++  if (!in_pass_page_ranges_.empty()) {
++    successful &= UploadPagesToStaging(in_pass_page_ranges_, false);
++  }
++  return successful;
++}
++
++bool VulkanSharedMemory::UploadPagesToStaging(
++    const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges, bool hoisted) {
++  if (!hoisted) {
++    Use(Usage::kTransferDestination,
++        std::make_pair(upload_page_ranges.front().first << page_size_log2(),
++                       (upload_page_ranges.back().first + upload_page_ranges.back().second -
++                        upload_page_ranges.front().first)
++                           << page_size_log2()));
++    command_processor_.SubmitBarriers(true);
++  }
+   DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
+   uint64_t submission_current = command_processor_.GetCurrentSubmission();
+   bool successful = true;
+@@ -304,6 +469,23 @@ bool VulkanSharedMemory::UploadRanges(
+       std::memcpy(upload_buffer_mapping,
+                   memory().TranslatePhysical(upload_range_start << page_size_log2()),
+                   upload_buffer_size);
++      if (shadow_) {
++        std::memcpy(shadow_ + (upload_range_start << page_size_log2()), upload_buffer_mapping,
++                    upload_buffer_size);
++        std::memset(shadow_valid_.data() + upload_range_start, 1,
++                    size_t(upload_buffer_size >> page_size_log2()));
++      }
++      if (hoisted) {
++        VkBufferCopy region;
++        region.srcOffset = upload_buffer_offset;
++        region.dstOffset = VkDeviceSize(upload_range_start << page_size_log2());
++        region.size = upload_buffer_size;
++        hoisted_copies_.push_back({upload_buffer, region});
++        uint32_t pages = uint32_t(upload_buffer_size >> page_size_log2());
++        upload_range_start += pages;
++        upload_range_length -= pages;
++        continue;
++      }
+       if (upload_buffer_previous != upload_buffer && !upload_regions_.empty()) {
+         assert_true(upload_buffer_previous != VK_NULL_HANDLE);
+         command_buffer.CmdVkCopyBuffer(upload_buffer_previous, buffer_,
+diff --git a/src/input/input_system.cpp b/src/input/input_system.cpp
+index 40740ee..ec46e0e 100644
+--- a/src/input/input_system.cpp
++++ b/src/input/input_system.cpp
+@@ -62,6 +62,7 @@ X_STATUS InputSystem::Setup() {
+ }
+ 
+ void InputSystem::Shutdown() {
++  std::lock_guard<std::recursive_mutex> lock(devices_mutex_);
+   // device_owners_ holds raw driver pointers.
+   devices_.clear();
+   device_owners_.clear();
+@@ -86,6 +87,7 @@ void InputSystem::SetActiveCallback(std::function<bool()> callback) {
+ }
+ 
+ void InputSystem::SetDeviceAssignment(std::unique_ptr<DeviceAssignment> assignment) {
++  std::lock_guard<std::recursive_mutex> lock(devices_mutex_);
+   assignment_ = std::move(assignment);
+   if (assignment_) {
+     assignment_->OnDevicesChanged(devices_);
+@@ -219,6 +221,7 @@ DeviceId InputSystem::ChooseDeviceForUser(uint32_t user_index) const {
+ X_RESULT InputSystem::GetCapabilities(uint32_t user_index, uint32_t flags,
+                                       X_INPUT_CAPABILITIES* out_caps) {
+   SCOPE_profile_cpu_f("hid");
++  std::lock_guard<std::recursive_mutex> lock(devices_mutex_);
+   if (!out_caps || !assignment_) {
+     return X_ERROR_DEVICE_NOT_CONNECTED;
+   }
+@@ -269,8 +272,13 @@ void InputSystem::UpdateConnectedUser(uint32_t user_index, bool connected) {
+                                           {caps.gamepad.thumb_rx, caps.gamepad.thumb_ry}};
+ }
+ 
++void InputSystem::SetPadHook(std::function<bool(const X_INPUT_GAMEPAD&)> hook) {
++  pad_hook_ = std::move(hook);
++}
++
+ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
+   SCOPE_profile_cpu_f("hid");
++  std::lock_guard<std::recursive_mutex> lock(devices_mutex_);
+ 
+   // A dialog owns the controller.
+   if (ui_input_blockers_.load() > 0) {
+@@ -290,11 +298,17 @@ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
+     out_state->gamepad.buttons = static_cast<uint16_t>(buttons & ~consumed_buttons_[user_index]);
+   }
+ 
++  if (result == X_ERROR_SUCCESS && out_state && user_index == 0 && pad_hook_ &&
++      pad_hook_(out_state->gamepad)) {
++    out_state->gamepad = {};
++  }
++
+   return result;
+ }
+ 
+ X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_state) {
+   SCOPE_profile_cpu_f("hid");
++  std::lock_guard<std::recursive_mutex> lock(devices_mutex_);
+   if (!assignment_) {
+     return X_ERROR_DEVICE_NOT_CONNECTED;
+   }
+@@ -343,6 +357,7 @@ void InputSystem::AddUIInputBlocker() {
+ }
+ 
+ void InputSystem::RemoveUIInputBlocker() {
++  std::lock_guard<std::recursive_mutex> lock(devices_mutex_);
+   // Whatever is held right now stays masked until released, so the press that
+   // dismissed the dialog is not also read as a press in the game.
+   X_INPUT_STATE state = {};
+@@ -417,6 +432,7 @@ X_INPUT_VIBRATION InputSystem::ModifyVibrationLevel(const X_INPUT_VIBRATION* vib
+ 
+ X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration) {
+   SCOPE_profile_cpu_f("hid");
++  std::lock_guard<std::recursive_mutex> lock(devices_mutex_);
+   if (!assignment_ || !vibration) {
+     return X_ERROR_DEVICE_NOT_CONNECTED;
+   }
+@@ -462,6 +478,7 @@ X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration
+ X_RESULT InputSystem::GetKeystroke(uint32_t user_index, uint32_t flags,
+                                    X_INPUT_KEYSTROKE* out_keystroke) {
+   SCOPE_profile_cpu_f("hid");
++  std::lock_guard<std::recursive_mutex> lock(devices_mutex_);
+   if (!assignment_) {
+     return X_ERROR_DEVICE_NOT_CONNECTED;
+   }
+diff --git a/src/kernel/xam/xam_content.cpp b/src/kernel/xam/xam_content.cpp
+index 86c4353..2f1d376 100644
+--- a/src/kernel/xam/xam_content.cpp
++++ b/src/kernel/xam/xam_content.cpp
+@@ -63,6 +63,11 @@ u32 XamContentCreateEnumerator_entry(u32 user_index, u32 device_id, u32 content_
+                                      mapped_u32 buffer_size_ptr, mapped_u32 handle_out) {
+   assert_not_null(handle_out);
+ 
++  REXKRNL_DEBUG(
++      "XamContentCreateEnumerator(user={}, device={:08X}, type={:08X}, flags={:08X}, items={})",
++      uint32_t(user_index), uint32_t(device_id), uint32_t(content_type),
++      uint32_t(content_flags), uint32_t(items_per_enumerate));
++
+   auto device_info = device_id == 0 ? nullptr : GetDummyDeviceInfo(device_id);
+   if ((device_id && device_info == nullptr) || !handle_out) {
+     if (buffer_size_ptr) {
+@@ -99,6 +104,8 @@ u32 XamContentCreateEnumerator_entry(u32 user_index, u32 device_id, u32 content_
+       for (const auto& content_data : common_datas) {
+         auto item = e->AppendItem();
+         *item = content_data;
++        REXKRNL_INFO("XamContentCreateEnumerator: common item device={:08X} type={:08X} file='{}'",
++                      uint32_t(item->device_id), uint32_t(XContentType(item->content_type)), item->file_name());
+       }
+     }
+   }
+@@ -107,7 +114,7 @@ u32 XamContentCreateEnumerator_entry(u32 user_index, u32 device_id, u32 content_
+     // TODO(gibbed): disc drive content
+   }
+ 
+-  REXKRNL_DEBUG("XamContentCreateEnumerator: added {} items to enumerator", e->item_count());
++  REXKRNL_INFO("XamContentCreateEnumerator: added {} items to enumerator", e->item_count());
+ 
+   *handle_out = e->handle();
+   return X_ERROR_SUCCESS;
+@@ -131,10 +138,19 @@ u32 xeXamContentCreate(u32 user_index, mapped_string root_name, mapped_void cont
+     return X_ERROR_INVALID_PARAMETER;
+   }
+ 
+-  if (content_data.content_type == XContentType::kMarketplaceContent) {
++  auto content_type = static_cast<XContentType>(content_data.content_type);
++
++  if (content_type == XContentType::kMarketplaceContent) {
+     xuid = 0;
+   }
+ 
++  REXKRNL_INFO(
++      "XamContentCreate(root='{}', user={}, device={:08X}, type={:08X}, file='{}', flags={:08X}, "
++      "cache_size={}, content_size={})",
++      root_name.value(), uint32_t(user_index), uint32_t(content_data.device_id),
++      static_cast<uint32_t>(static_cast<XContentType>(content_data.content_type)),
++      content_data.file_name(), uint32_t(flags), uint32_t(cache_size), uint64_t(content_size));
++
+   auto content_manager = REX_KERNEL_STATE()->content_manager();
+ 
+   if (overlapped_ptr && disposition_ptr) {
+@@ -142,10 +158,13 @@ u32 xeXamContentCreate(u32 user_index, mapped_string root_name, mapped_void cont
+   }
+ 
+   auto run = [content_manager, xuid, root_name = root_name.value(), flags, content_data,
++              content_type,
+               disposition_ptr,
+               license_mask_ptr](uint32_t& extended_error, uint32_t& length) -> X_RESULT {
+     X_RESULT result = X_ERROR_INVALID_PARAMETER;
+     kDispositionState disposition = kDispositionState::Unknown;
++    // Only loads (OPEN_EXISTING) get the placeholder save file; saves create it themselves.
++    bool seed_save_file = (flags & 0xF) == 3;
+     switch (flags & 0xF) {
+       case 1:  // CREATE_NEW
+                // Fail if exists.
+@@ -170,7 +189,15 @@ u32 xeXamContentCreate(u32 user_index, mapped_string root_name, mapped_void cont
+       case 3:  // OPEN_EXISTING
+                // Open only if exists.
+         if (!content_manager->ContentExists(xuid, content_data)) {
+-          result = X_ERROR_PATH_NOT_FOUND;
++          if (content_type == XContentType::kSavedGame) {
++            REXKRNL_WARN(
++                "XamContentCreate OPEN_EXISTING requested missing saved game '{}'; creating "
++                "directory-backed package",
++                content_data.file_name());
++            disposition = kDispositionState::Create;
++          } else {
++            result = X_ERROR_PATH_NOT_FOUND;
++          }
+         } else {
+           disposition = kDispositionState::Open;
+         }
+@@ -203,12 +230,13 @@ u32 xeXamContentCreate(u32 user_index, mapped_string root_name, mapped_void cont
+ 
+     uint32_t content_license = 0;
+     if (disposition == kDispositionState::Create) {
+-      result = content_manager->CreateContent(root_name, xuid, content_data);
++      result = content_manager->CreateContent(root_name, xuid, content_data, seed_save_file);
+       if (result == X_ERROR_SUCCESS) {
+         content_manager->WriteContentHeaderFile(xuid, content_data);
+       }
+     } else if (disposition == kDispositionState::Open) {
+-      result = content_manager->OpenContent(root_name, xuid, content_data, content_license);
++      result = content_manager->OpenContent(root_name, xuid, content_data, content_license,
++                                            seed_save_file);
+     }
+ 
+     if (license_mask_ptr && result == X_ERROR_SUCCESS) {
+@@ -219,16 +247,36 @@ u32 xeXamContentCreate(u32 user_index, mapped_string root_name, mapped_void cont
+       *disposition_ptr = static_cast<uint32_t>(disposition);
+     }
+ 
++    REXKRNL_INFO("XamContentCreate result: root='{}', file='{}', disposition={}, result={:08X}",
++                  root_name, content_data.file_name(), static_cast<uint32_t>(disposition),
++                  uint32_t(result));
++
+     extended_error = X_HRESULT_FROM_WIN32(result);
+     length = static_cast<uint32_t>(disposition);
+     return result;
+   };
+ 
++  // A host exception here (e.g. std::filesystem) would otherwise abort the whole process.
++  auto safe_run = [run, root = root_name.value(), file = content_data.file_name()](
++                      uint32_t& extended_error, uint32_t& length) -> X_RESULT {
++    try {
++      return run(extended_error, length);
++    } catch (const std::exception& e) {
++      REXKRNL_ERROR("XamContentCreate(root='{}', file='{}') threw: {}", root, file, e.what());
++    } catch (...) {
++      REXKRNL_ERROR("XamContentCreate(root='{}', file='{}') threw an unknown exception", root,
++                    file);
++    }
++    extended_error = X_HRESULT_FROM_WIN32(X_ERROR_FILE_NOT_FOUND);
++    length = 0;
++    return X_ERROR_FILE_NOT_FOUND;
++  };
++
+   if (!overlapped_ptr) {
+     uint32_t extended_error, length;
+-    return run(extended_error, length);
++    return safe_run(extended_error, length);
+   } else {
+-    REX_KERNEL_STATE()->CompleteOverlappedDeferredEx(run, overlapped_ptr.guest_address());
++    REX_KERNEL_STATE()->CompleteOverlappedDeferredEx(safe_run, overlapped_ptr.guest_address());
+     return X_ERROR_IO_PENDING;
+   }
+ }
+diff --git a/src/kernel/xam/xam_enum.cpp b/src/kernel/xam/xam_enum.cpp
+index 9dcab94..da059e4 100644
+--- a/src/kernel/xam/xam_enum.cpp
++++ b/src/kernel/xam/xam_enum.cpp
+@@ -73,13 +73,16 @@ uint32_t xeXamEnumerate(uint32_t handle, uint32_t flags, mapped_void buffer_ptr,
+ 
+ u32 XamEnumerate_entry(u32 handle, u32 flags, mapped_void buffer, u32 buffer_length,
+                        mapped_u32 items_returned, ppc_ptr_t<XAM_OVERLAPPED> overlapped) {
+-  uint32_t dummy;
++  uint32_t dummy = 0;
+   auto result =
+       xeXamEnumerate(handle, flags, buffer, buffer_length,
+                      !overlapped.guest_address() ? &dummy : nullptr, overlapped.guest_address());
+   if (!overlapped && items_returned) {
+     *items_returned = dummy;
+   }
++  REXKRNL_INFO("XamEnumerate(handle={:08X}, buffer={:08X}, length={}, overlapped={:08X}) -> {:08X}, items={}",
++                uint32_t(handle), buffer.guest_address(), uint32_t(buffer_length),
++                overlapped.guest_address(), result, dummy);
+   return result;
+ }
+ 
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_io.cpp b/src/kernel/xboxkrnl/xboxkrnl_io.cpp
+index cce4f65..1a2b1a9 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_io.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_io.cpp
+@@ -12,6 +12,9 @@
+ // Disable warnings about unused parameters for kernel functions
+ #pragma GCC diagnostic ignored "-Wunused-parameter"
+ 
++#include <cctype>
++
++#include <rex/cvar.h>
+ #include <rex/filesystem/device.h>
+ #include <rex/kernel/xboxkrnl/private.h>
+ #include <rex/logging.h>
+@@ -184,6 +187,28 @@ u32 NtOpenFile_entry(mapped_u32 handle_out, u32 desired_access,
+                             open_options);
+ }
+ 
++REXCVAR_DEFINE_STRING(trace_reads_filter, "", "Kernel",
++                      "Log NtReadFile/NtReadFileScatter calls on files whose path contains this "
++                      "text (case-insensitive); empty = off");
++
++namespace {
++void TraceRead(const char* fn, rex::system::XFile* file, uint32_t event_handle,
++               uint32_t apc_routine, uint64_t offset, uint32_t length, uint32_t bytes,
++               uint32_t status, uint32_t result) {
++  const auto& filter = REXCVAR_GET(trace_reads_filter);
++  if (filter.empty() || !file) return;
++  std::string path = file->path();
++  std::string lower_path = path, lower_filter = filter;
++  for (auto& c : lower_path) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
++  for (auto& c : lower_filter) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
++  if (lower_path.find(lower_filter) == std::string::npos) return;
++  auto thread = rex::system::XThread::GetCurrentThread();
++  REXKRNL_INFO("[read] {} {} off={:#x} len={:#x} got={:#x} st={:#x} ret={:#x} ev={:#x} apc={:#x} sync={} t={}",
++               fn, path, offset, length, bytes, status, result, event_handle, apc_routine,
++               file->is_synchronous(), thread ? thread->thread_id() : 0);
++}
++}  // namespace
++
+ u32 NtReadFile_entry(u32 file_handle, u32 event_handle, mapped_void apc_routine_ptr,
+                      mapped_void apc_context, ppc_ptr_t<X_IO_STATUS_BLOCK> io_status_block,
+                      mapped_void buffer, u32 buffer_length, mapped_u64 byte_offset_ptr) {
+@@ -279,6 +304,13 @@ u32 NtReadFile_entry(u32 file_handle, u32 event_handle, mapped_void apc_routine_
+     ev->Set(0, false);
+   }
+ 
++  if (file) {
++    TraceRead("NtReadFile", file.get(), event_handle, static_cast<uint32_t>(apc_routine_ptr),
++              byte_offset, buffer_length,
++              io_status_block ? static_cast<uint32_t>(io_status_block->information) : 0,
++              io_status_block ? static_cast<uint32_t>(io_status_block->status) : 0, result);
++  }
++
+   // Log detailed completion info for debugging async IO issues
+   if (file) {
+     REXKRNL_IMPORT_RESULT(
+@@ -376,6 +408,14 @@ u32 NtReadFileScatter_entry(u32 file_handle, u32 event_handle, mapped_void apc_r
+     ev->Set(0, false);
+   }
+ 
++  if (file) {
++    TraceRead("NtReadFileScatter", file.get(), event_handle,
++              static_cast<uint32_t>(apc_routine_ptr),
++              byte_offset_ptr ? static_cast<uint64_t>(*byte_offset_ptr) : ~0ull, length,
++              io_status_block ? static_cast<uint32_t>(io_status_block->information) : 0,
++              io_status_block ? static_cast<uint32_t>(io_status_block->status) : 0, result);
++  }
++
+   return result;
+ }
+ 
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp b/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp
+index bd5de65..f1aee1a 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_io_info.cpp
+@@ -267,7 +267,14 @@ u32 NtSetInformationFile_entry(u32 file_handle, ppc_ptr_t<X_IO_STATUS_BLOCK> io_
+         basic_result &= file->entry()->SetWriteTimestamp(info->last_write_time);
+       }
+ 
+-      basic_result &= file->entry()->SetAttributes(info->attributes);
++      // NT semantics: FileAttributes == 0 means "leave unchanged", and the
++      // directory bit cannot be changed through FileBasicInformation.
++      uint32_t attributes = info->attributes;
++      if (attributes) {
++        uint32_t directory_bit = file->entry()->attributes() & X_FILE_ATTRIBUTE_DIRECTORY;
++        attributes = (attributes & ~uint32_t(X_FILE_ATTRIBUTE_DIRECTORY)) | directory_bit;
++        basic_result &= file->entry()->SetAttributes(attributes);
++      }
+       if (!basic_result) {
+         result = X_STATUS_UNSUCCESSFUL;
+       }
+diff --git a/src/system/function_dispatcher.cpp b/src/system/function_dispatcher.cpp
+index bd43109..7d203ac 100644
+--- a/src/system/function_dispatcher.cpp
++++ b/src/system/function_dispatcher.cpp
+@@ -35,8 +35,12 @@ FunctionDispatcher* GetBoundFunctionDispatcher() {
+ }  // namespace
+ 
+ static void InvalidFunctionTrap(PPCContext& ctx, uint8_t* /*base*/) {
+-  REX_FATAL("Call to invalid or unregistered function at guest address 0x{:08X}",
+-            ctx.last_indirect_target);
++  REX_FATAL(
++      "Call to invalid or unregistered function at guest address 0x{:08X} "
++      "(lr=0x{:08X}, ctr=0x{:08X}, r3=0x{:08X}, r4=0x{:08X}, r5=0x{:08X}, r6=0x{:08X}, "
++      "r7=0x{:08X}, r8=0x{:08X}, r9=0x{:08X}, r10=0x{:08X}, r11=0x{:08X}, r12=0x{:08X})",
++      ctx.last_indirect_target, static_cast<uint32_t>(ctx.lr), ctx.ctr.u32, ctx.r3.u32, ctx.r4.u32, ctx.r5.u32,
++      ctx.r6.u32, ctx.r7.u32, ctx.r8.u32, ctx.r9.u32, ctx.r10.u32, ctx.r11.u32, ctx.r12.u32);
+ }
+ 
+ PPCFunc* ResolveIndirectFunction(uint32_t guest_address) {
+@@ -70,6 +74,8 @@ bool FunctionDispatcher::Execute(ThreadState* thread_state, uint32_t address) {
+   auto* ctx = thread_state->context();
+   auto* previous_thread_state = ThreadState::Get();
+ 
++  ctx->fpscr.InitHost();
++
+   // Rebind the active guest thread for cross-module callbacks.
+   ThreadState::Bind(thread_state);
+ 
+diff --git a/src/system/runtime.cpp b/src/system/runtime.cpp
+index c10694c..a7e4d7e 100644
+--- a/src/system/runtime.cpp
++++ b/src/system/runtime.cpp
+@@ -11,6 +11,7 @@
+ 
+ #include <rex/chrono/clock.h>
+ #include <rex/cvar.h>
++#include <rex/filesystem.h>
+ #include <rex/filesystem/devices/host_path_device.h>
+ #include <rex/filesystem/devices/null_device.h>
+ #include <rex/filesystem/vfs.h>
+@@ -33,6 +34,10 @@ REXCVAR_DEFINE_STRING(user_data_root, "", "Runtime", "Override user data path");
+ REXCVAR_DEFINE_STRING(update_data_root, "", "Runtime", "Override update data path");
+ REXCVAR_DEFINE_STRING(cache_root, "", "Runtime", "Override shader cache path");
+ REXCVAR_DEFINE_STRING(metadata_root, "", "Runtime", "Override metadata path");
++REXCVAR_DEFINE_STRING(mods_root, "", "Runtime",
++                      "Loose-file mods folder; files here replace same-named game files");
++REXCVAR_DEFINE_BOOL(mods_enabled, true, "Runtime", "Load files from the mods folder")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
+ namespace rex {
+ 
+@@ -307,6 +312,22 @@ bool Runtime::SetupVfs() {
+   auto mount_path = "\\Device\\Harddisk0\\Partition1";
+   auto device = std::make_unique<rex::filesystem::HostPathDevice>(
+       mount_path, abs_game_root, !REXCVAR_GET(allow_game_relative_writes));
++  if (REXCVAR_GET(mods_enabled)) {
++    std::filesystem::path mods_dir;
++    if (!REXCVAR_GET(mods_root).empty()) {
++      mods_dir = rex::to_path(REXCVAR_GET(mods_root));
++    } else {
++      // Portable layout: ..\mods next to the exe's folder, if it exists.
++      auto portable_mods = (rex::filesystem::GetExecutableFolder() / ".." / "mods").lexically_normal();
++      std::error_code mods_ec;
++      if (std::filesystem::is_directory(portable_mods, mods_ec))
++        mods_dir = portable_mods;
++    }
++    if (!mods_dir.empty())
++      device->set_overlay_path(std::filesystem::absolute(mods_dir));
++  } else {
++    REXSYS_INFO("Mods overlay disabled (mods_enabled = false)");
++  }
+   if (!device->Initialize()) {
+     REXSYS_ERROR("Runtime::SetupVfs: Failed to initialize host path device");
+     return false;
+@@ -350,9 +371,27 @@ bool Runtime::SetupVfs() {
+     REXSYS_DEBUG("  Registered NullDevice for \\Device\\Harddisk0\\{{Partition0,Cache0,Cache1}}");
+   }
+ 
+-  // NOTE: Do NOT register a device for cache: paths
+-  // Games handle "device not found" gracefully but don't handle actual device
+-  // errors (like NAME_COLLISION) well. Let cache: fail cleanly.
++  // Give title-level scratch devices a real writable backing store. Many games
++  // tolerate missing CACHE:/PHOTO:, but some use them for save/load probes.
++  const auto scratch_root = std::filesystem::absolute(
++      cache_root_.empty() ? (user_data_root_ / "cache") : cache_root_);
++
++  auto mount_scratch_device = [&](const std::string_view guest_name,
++                                  const std::string_view device_path,
++                                  const std::filesystem::path& host_path) {
++    auto scratch_device =
++        std::make_unique<rex::filesystem::HostPathDevice>(device_path, host_path, false);
++    if (!scratch_device->Initialize()) {
++      REXSYS_WARN("  Failed to mount {} scratch at {}", guest_name, host_path.string());
++      return;
++    }
++    file_system_->RegisterDevice(std::move(scratch_device));
++    file_system_->RegisterSymbolicLink(guest_name, device_path);
++    REXSYS_INFO("  Mounted {} scratch at {}", guest_name, host_path.string());
++  };
++
++  mount_scratch_device("cache:", "\\Device\\Cache0", scratch_root / "xbox_cache");
++  mount_scratch_device("photo:", "\\Device\\Photo0", scratch_root / "photo");
+ 
+   return true;
+ }
+diff --git a/src/system/xam/content_manager.cpp b/src/system/xam/content_manager.cpp
+index d0c7bfd..49b2e5b 100644
+--- a/src/system/xam/content_manager.cpp
++++ b/src/system/xam/content_manager.cpp
+@@ -38,6 +38,31 @@ static const char* kGameContentHeaderDirName = "Headers";
+ 
+ static int content_device_id_ = 0;
+ 
++static bool ShouldSeedEmptySaveFile(const XCONTENT_AGGREGATE_DATA& data) {
++  return data.content_type == XContentType::kSavedGame && data.file_name() == "Game Play Data";
++}
++
++static X_RESULT SeedEmptySaveFileIfMissing(const std::filesystem::path& package_path,
++                                           const XCONTENT_AGGREGATE_DATA& data) {
++  if (!ShouldSeedEmptySaveFile(data)) {
++    return X_ERROR_SUCCESS;
++  }
++
++  auto file_path = package_path / "savegame.txt";
++  if (std::filesystem::exists(file_path)) {
++    return X_ERROR_SUCCESS;
++  }
++
++  std::error_code ec;
++  std::filesystem::create_directories(file_path.parent_path(), ec);
++  if (ec) {
++    return X_ERROR_ACCESS_DENIED;
++  }
++
++  REXSYS_DEBUG("XContent seed file: file='{}', path={}", data.file_name(), file_path.string());
++  return rex::filesystem::CreateEmptyFile(file_path) ? X_ERROR_SUCCESS : X_ERROR_ACCESS_DENIED;
++}
++
+ ContentPackage::ContentPackage(KernelState* kernel_state, const std::string_view root_name,
+                                const XCONTENT_AGGREGATE_DATA& data,
+                                const std::filesystem::path& package_path)
+@@ -202,6 +227,11 @@ X_RESULT ContentManager::WriteContentHeaderFile(uint64_t xuid, XCONTENT_AGGREGAT
+       ResolvePackageHeaderPath(data.file_name(), used_xuid, data.title_id, data.content_type);
+   auto parent_path = header_path.parent_path();
+ 
++  REXSYS_DEBUG(
++      "XContent header write: xuid={:016X}, type={:08X}, file='{}', path={}", used_xuid,
++      static_cast<uint32_t>(static_cast<XContentType>(data.content_type)), data.file_name(),
++      header_path.string());
++
+   if (!std::filesystem::exists(parent_path)) {
+     if (!std::filesystem::create_directories(parent_path)) {
+       return X_ERROR_ACCESS_DENIED;
+@@ -256,7 +286,8 @@ X_RESULT ContentManager::ReadContentHeaderFile(const std::string_view file_name,
+ }
+ 
+ X_RESULT ContentManager::CreateContent(const std::string_view root_name, uint64_t xuid,
+-                                       const XCONTENT_AGGREGATE_DATA& data) {
++                                       const XCONTENT_AGGREGATE_DATA& data,
++                                       bool seed_save_file) {
+   {
+     auto global_lock = global_critical_region_.Acquire();
+     if (open_packages_.count(string::string_key_case(root_name))) {
+@@ -265,12 +296,21 @@ X_RESULT ContentManager::CreateContent(const std::string_view root_name, uint64_
+   }
+ 
+   auto package_path = ResolvePackagePath(xuid, data);
++  REXSYS_DEBUG("XContent create: xuid={:016X}, type={:08X}, file='{}', path={}", xuid,
++               static_cast<uint32_t>(static_cast<XContentType>(data.content_type)),
++               data.file_name(), package_path.string());
+   if (std::filesystem::exists(package_path)) {
+     return X_ERROR_ALREADY_EXISTS;
+   }
+   if (!std::filesystem::create_directories(package_path)) {
+     return X_ERROR_ACCESS_DENIED;
+   }
++  if (seed_save_file) {
++    auto seed_result = SeedEmptySaveFileIfMissing(package_path, data);
++    if (XFAILED(seed_result)) {
++      return seed_result;
++    }
++  }
+   auto package = ResolvePackage(root_name, xuid, data);
+   assert_not_null(package);
+ 
+@@ -286,7 +326,7 @@ X_RESULT ContentManager::CreateContent(const std::string_view root_name, uint64_
+ 
+ X_RESULT ContentManager::OpenContent(const std::string_view root_name, uint64_t xuid,
+                                      const XCONTENT_AGGREGATE_DATA& data,
+-                                     uint32_t& content_license) {
++                                     uint32_t& content_license, bool seed_save_file) {
+   {
+     auto global_lock = global_critical_region_.Acquire();
+     if (open_packages_.count(string::string_key_case(root_name))) {
+@@ -295,9 +335,18 @@ X_RESULT ContentManager::OpenContent(const std::string_view root_name, uint64_t
+   }
+ 
+   auto package_path = ResolvePackagePath(xuid, data);
++  REXSYS_DEBUG("XContent open: xuid={:016X}, type={:08X}, file='{}', path={}", xuid,
++               static_cast<uint32_t>(static_cast<XContentType>(data.content_type)),
++               data.file_name(), package_path.string());
+   if (!std::filesystem::exists(package_path)) {
+     return X_ERROR_FILE_NOT_FOUND;
+   }
++  if (seed_save_file) {
++    auto seed_result = SeedEmptySaveFileIfMissing(package_path, data);
++    if (XFAILED(seed_result)) {
++      return seed_result;
++    }
++  }
+   auto package = ResolvePackage(root_name, xuid, data);
+   assert_not_null(package);
+   package->LoadPackageLicenseMask(ResolvePackageHeaderPath(
+@@ -373,6 +422,9 @@ X_RESULT ContentManager::DeleteContent(uint64_t xuid, const XCONTENT_AGGREGATE_D
+   }
+ 
+   auto package_path = ResolvePackagePath(xuid, data);
++  REXSYS_DEBUG("XContent delete: xuid={:016X}, type={:08X}, file='{}', path={}", xuid,
++               static_cast<uint32_t>(static_cast<XContentType>(data.content_type)),
++               data.file_name(), package_path.string());
+   std::error_code ec;
+   auto dir_removed = std::filesystem::remove_all(package_path, ec);
+   if (ec ||
+diff --git a/src/ui/d3d12/d3d12_presenter.cpp b/src/ui/d3d12/d3d12_presenter.cpp
+index 306118e..dca5213 100644
+--- a/src/ui/d3d12/d3d12_presenter.cpp
++++ b/src/ui/d3d12/d3d12_presenter.cpp
+@@ -35,6 +35,35 @@ REXCVAR_DEFINE_BOOL(d3d12_allow_variable_refresh_rate_and_tearing, true, "UI/D3D
+ 
+ namespace rex::ui::d3d12 {
+ 
++namespace {
++
++const char* GetDeviceRemovedReasonName(HRESULT reason) {
++  switch (reason) {
++    case DXGI_ERROR_DEVICE_HUNG:
++      return "DEVICE_HUNG (TDR - GPU command took too long)";
++    case DXGI_ERROR_DEVICE_REMOVED:
++      return "DEVICE_REMOVED (driver internal error or hot-unplug)";
++    case DXGI_ERROR_DEVICE_RESET:
++      return "DEVICE_RESET (bad GPU command)";
++    case DXGI_ERROR_DRIVER_INTERNAL_ERROR:
++      return "DRIVER_INTERNAL_ERROR";
++    case DXGI_ERROR_INVALID_CALL:
++      return "INVALID_CALL";
++    default:
++      return "Unknown";
++  }
++}
++
++void LogPresentDeviceLoss(ID3D12Device* device, HRESULT present_result) {
++  HRESULT removed_reason = device ? device->GetDeviceRemovedReason() : present_result;
++  REXLOG_ERROR(
++      "D3D12Presenter: Present failed with HRESULT 0x{:08X}; device removed reason 0x{:08X} - {}",
++      static_cast<unsigned>(present_result), static_cast<unsigned>(removed_reason),
++      GetDeviceRemovedReasonName(removed_reason));
++}
++
++}  // namespace
++
+ // Generated with `xb buildshaders`.
+ namespace shaders {
+ #include "ui/shaders/bytecode/d3d12_5_1/guest_output_bilinear_dither_ps.h"
+@@ -1164,8 +1193,10 @@ Presenter::PaintResult D3D12Presenter::PaintAndPresentImpl(bool execute_ui_drawe
+   paint_context_.present_submission_tracker.NextSubmission();
+   switch (present_result) {
+     case DXGI_ERROR_DEVICE_REMOVED:
++      LogPresentDeviceLoss(device, present_result);
+       return PaintResult::kGpuLostExternally;
+     case DXGI_ERROR_DEVICE_RESET:
++      LogPresentDeviceLoss(device, present_result);
+       return PaintResult::kGpuLostResponsible;
+     default:
+       return SUCCEEDED(present_result) ? PaintResult::kPresented : PaintResult::kNotPresented;
+diff --git a/src/ui/imgui_drawer.cpp b/src/ui/imgui_drawer.cpp
+index f270f3c..0f48dc6 100644
+--- a/src/ui/imgui_drawer.cpp
++++ b/src/ui/imgui_drawer.cpp
+@@ -412,6 +412,7 @@ void ImGuiDrawer::Draw(UIDrawContext& ui_draw_context) {
+   io.DisplaySize.x = window_->GetActualPhysicalWidth() * physical_to_logical;
+   io.DisplaySize.y = window_->GetActualPhysicalHeight() * physical_to_logical;
+ 
++  ApplyGamepadInput(io);
+   ImGui::NewFrame();
+ 
+   assert_true(!IsDrawingDialogs());
+@@ -436,7 +437,18 @@ void ImGuiDrawer::Draw(UIDrawContext& ui_draw_context) {
+   // it now if needed.
+   DetachIfLastDialogRemoved();
+ 
+-  if (!dialogs_.empty()) {
++  // DLSS-UP-3: only dialogs with something to show need continuous repaints. The
++  // always-alive achievement toast used to keep the UI thread presenting at the
++  // monitor refresh rate (165-220 presents/s on a 239 Hz screen, uneven frame
++  // pacing); when idle, painting follows guest frames instead.
++  bool any_active = false;
++  for (ImGuiDialog* dialog : dialogs_) {
++    if (!dialog->IsIdle()) {
++      any_active = true;
++      break;
++    }
++  }
++  if (any_active) {
+     // Repaint (and handle input) continuously if still active. In detached mode
+     // there is no presenter; the app drives repaint via its own present loop.
+     if (presenter_) {
+@@ -487,6 +499,61 @@ ImGuiIO& ImGuiDrawer::GetIO() {
+   return ImGui::GetIO();
+ }
+ 
++void ImGuiDrawer::SetGamepadInput(bool active, uint16_t buttons, int16_t lx, int16_t ly) {
++  uint64_t v = (uint64_t(active) << 63) | (uint64_t(buttons) << 32) |
++               (uint64_t(uint16_t(lx)) << 16) | uint64_t(uint16_t(ly));
++  gamepad_packed_.store(v, std::memory_order_relaxed);
++}
++
++void ImGuiDrawer::ApplyGamepadInput(ImGuiIO& io) {
++  uint64_t v = gamepad_packed_.load(std::memory_order_relaxed);
++  bool active = (v >> 63) != 0;
++  uint16_t buttons = active ? uint16_t(v >> 32) : 0;
++  int16_t lx = active ? int16_t((v >> 16) & 0xFFFF) : 0;
++  int16_t ly = active ? int16_t(v & 0xFFFF) : 0;
++  if (!active && !gamepad_prev_active_) {
++    return;
++  }
++  if (active) {
++    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
++    io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
++  }
++  struct Map {
++    uint16_t mask;
++    ImGuiKey key;
++  };
++  static const Map kMap[] = {
++      {0x0001, ImGuiKey_GamepadDpadUp},    {0x0002, ImGuiKey_GamepadDpadDown},
++      {0x0004, ImGuiKey_GamepadDpadLeft},  {0x0008, ImGuiKey_GamepadDpadRight},
++      {0x1000, ImGuiKey_GamepadFaceDown},  // A = activate
++      {0x2000, ImGuiKey_GamepadFaceRight},  // B = cancel
++      {0x4000, ImGuiKey_GamepadFaceLeft},  {0x8000, ImGuiKey_GamepadFaceUp},
++      {0x0100, ImGuiKey_GamepadL1},        {0x0200, ImGuiKey_GamepadR1},
++  };
++  for (const auto& m : kMap) {
++    bool now = (buttons & m.mask) != 0;
++    bool was = (gamepad_prev_buttons_ & m.mask) != 0;
++    if (now != was) {
++      io.AddKeyEvent(m.key, now);
++    }
++  }
++  // Left stick -> analog nav axes (dead zone 25%).
++  auto axis = [](int16_t a, bool positive) {
++    float f = float(a) / 32767.0f;
++    f = positive ? f : -f;
++    return f > 0.25f ? (f - 0.25f) / 0.75f : 0.0f;
++  };
++  io.AddKeyAnalogEvent(ImGuiKey_GamepadLStickLeft, axis(lx, false) > 0, axis(lx, false));
++  io.AddKeyAnalogEvent(ImGuiKey_GamepadLStickRight, axis(lx, true) > 0, axis(lx, true));
++  io.AddKeyAnalogEvent(ImGuiKey_GamepadLStickUp, axis(ly, true) > 0, axis(ly, true));
++  io.AddKeyAnalogEvent(ImGuiKey_GamepadLStickDown, axis(ly, false) > 0, axis(ly, false));
++  gamepad_prev_buttons_ = buttons;
++  gamepad_prev_active_ = active;
++  if (!active) {
++    io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
++  }
++}
++
+ void ImGuiDrawer::OnKeyDown(KeyEvent& e) {
+   OnKey(e, true);
+ }
+diff --git a/src/ui/overlay/achievement_toast.cpp b/src/ui/overlay/achievement_toast.cpp
+index 53b8c0b..6d440af 100644
+--- a/src/ui/overlay/achievement_toast.cpp
++++ b/src/ui/overlay/achievement_toast.cpp
+@@ -29,6 +29,11 @@ void AchievementToastDialog::Push(const rex::system::AchievementEvent& event) {
+   queue_.push_back({event, std::chrono::steady_clock::now()});
+ }
+ 
++bool AchievementToastDialog::IsIdle() {
++  std::lock_guard<std::mutex> lock(mutex_);
++  return queue_.empty();
++}
++
+ void AchievementToastDialog::OnDraw(ImGuiIO& io) {
+   auto now = std::chrono::steady_clock::now();
+ 
+diff --git a/src/ui/overlay/settings_overlay.cpp b/src/ui/overlay/settings_overlay.cpp
+index 4ede107..25b93c3 100644
+--- a/src/ui/overlay/settings_overlay.cpp
++++ b/src/ui/overlay/settings_overlay.cpp
+@@ -14,18 +14,73 @@
+ #include <rex/string.h>
+ #include <rex/string/numeric.h>
+ #include <rex/ui/keybinds.h>
++#include <rex/filesystem.h>
++#include <rex/logging.h>
+ #include <imgui.h>
+ 
+ #include <algorithm>
++#include <cmath>
++#include <cstdlib>
++#include <chrono>
++#include <ctime>
++#include <filesystem>
++#include <initializer_list>
+ #include <map>
+ #include <set>
+ #include <string>
+ #include <vector>
+ 
++#ifdef _WIN32
++#define WIN32_LEAN_AND_MEAN
++#define NOMINMAX
++#include <windows.h>
++#include <shellapi.h>
++#pragma comment(lib, "shell32.lib")
++#endif
++
+ namespace rex::ui {
+ 
+-SettingsDialog::SettingsDialog(ImGuiDrawer* imgui_drawer, std::filesystem::path config_path)
+-    : ImGuiDialog(imgui_drawer), config_path_(std::move(config_path)) {}
++namespace {
++
++// Same resolution as ReXApp: user_data_root cvar, else ..\saves next to the exe's folder.
++std::filesystem::path ResolveSavesDir() {
++  std::string cvar_path = rex::cvar::GetFlagByName("user_data_root");
++  std::error_code ec;
++  if (!cvar_path.empty())
++    return std::filesystem::path(cvar_path);
++  auto portable = (rex::filesystem::GetExecutableFolder() / ".." / "saves").lexically_normal();
++  if (std::filesystem::is_directory(portable, ec))
++    return portable;
++  return {};
++}
++
++// Copy a save folder tree, leaving out the shader cache (large, rebuilt on demand).
++bool CopySaves(const std::filesystem::path& from, const std::filesystem::path& to,
++               std::string* error) {
++  std::error_code ec;
++  std::filesystem::create_directories(to, ec);
++  for (auto& entry : std::filesystem::directory_iterator(from, ec)) {
++    if (entry.path().filename() == "cache")
++      continue;
++    std::filesystem::copy(entry.path(), to / entry.path().filename(),
++                          std::filesystem::copy_options::recursive |
++                              std::filesystem::copy_options::overwrite_existing,
++                          ec);
++    if (ec) {
++      *error = ec.message();
++      return false;
++    }
++  }
++  return true;
++}
++
++}  // namespace
++
++SettingsDialog::SettingsDialog(ImGuiDrawer* imgui_drawer, std::filesystem::path config_path,
++                               std::function<void()> on_quit)
++    : ImGuiDialog(imgui_drawer),
++      config_path_(std::move(config_path)),
++      on_quit_(std::move(on_quit)) {}
+ 
+ SettingsDialog::~SettingsDialog() {}
+ 
+@@ -156,7 +211,284 @@ static rex::ui::VirtualKey ImGuiKeyToVirtualKey(ImGuiKey key) {
+   }
+ }
+ 
+-void SettingsDialog::OnDraw(ImGuiIO& /*io*/) {
++// Plain-language controls for the few settings players actually change. Every
++// change is saved to the config file right away.
++void SettingsDialog::DrawQuickSettings() {
++  struct Choice {
++    const char* label;
++    int value;
++  };
++  const float value_x = 220.0f;
++
++  auto set = [this](const char* name, const std::string& value) {
++    rex::cvar::SetFlagByName(name, value);
++    rex::cvar::SaveConfig(config_path_);
++  };
++  auto restart_note = [](const char* name) {
++    auto* info = rex::cvar::GetFlagInfo(name);
++    if (info && info->lifecycle == rex::cvar::Lifecycle::kRequiresRestart) {
++      ImGui::SameLine();
++      ImGui::TextDisabled("(applies next time you start)");
++    }
++  };
++  auto combo = [&](const char* label, const char* name, std::initializer_list<Choice> choices) {
++    if (!rex::cvar::GetFlagInfo(name))
++      return;
++    int cur = std::atoi(rex::cvar::GetFlagByName(name).c_str());
++    const char* preview = "custom";
++    for (auto& c : choices) {
++      if (c.value == cur)
++        preview = c.label;
++    }
++    ImGui::PushID(name);
++    ImGui::TextUnformatted(label);
++    ImGui::SameLine(value_x);
++    ImGui::SetNextItemWidth(230.0f);
++    if (pad_mode_) {
++      // Pad navigation: popups swallow pad input, so A cycles to the next value.
++      std::string text = std::string(preview) + "  >";
++      bool clicked = ImGui::Button((text + "##cyc").c_str(), ImVec2(230.0f, 0));
++      // D-pad right / A = next value, D-pad left = previous.
++      int step = clicked ? 1 : 0;
++      if (ImGui::IsItemFocused()) {
++        if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight))
++          step = 1;
++        else if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft))
++          step = -1;
++      }
++      if (step != 0) {
++        int idx = 0, n = 0;
++        for (auto& c : choices) {
++          if (c.value == cur)
++            idx = n;
++          ++n;
++        }
++        int target = (idx + step + n) % n, k = 0;
++        for (auto& c : choices) {
++          if (k++ == target)
++            set(name, std::to_string(c.value));
++        }
++      }
++    } else if (ImGui::BeginCombo("##q", preview)) {
++      for (auto& c : choices) {
++        if (ImGui::Selectable(c.label, c.value == cur))
++          set(name, std::to_string(c.value));
++      }
++      ImGui::EndCombo();
++    }
++    restart_note(name);
++    ImGui::PopID();
++  };
++  auto checkbox = [&](const char* label, const char* name) {
++    if (!rex::cvar::GetFlagInfo(name))
++      return;
++    bool v = rex::string::from_string<bool>(rex::cvar::GetFlagByName(name), false);
++    ImGui::PushID(name);
++    ImGui::TextUnformatted(label);
++    ImGui::SameLine(value_x);
++    if (ImGui::Checkbox("##q", &v))
++      set(name, v ? "true" : "false");
++    restart_note(name);
++    ImGui::PopID();
++  };
++
++  ImGui::TextColored(imgui_drawer()->style().settings.warning, "Quick settings");
++  ImGui::TextDisabled("Changes save automatically.");
++  ImGui::Spacing();
++  combo("Render resolution", "resolution_scale",
++        {{"720p (original)", 1},
++         {"1440p", 2},
++         {"4K (2160p)", 3},
++         {"5K (2880p)", 4},
++         {"6K (3600p)", 5},
++         {"8K (4320p), sharpest on a 4K screen", 6}});
++  {
++    auto* info = rex::cvar::GetFlagInfo("gpu_backend");
++    if (info) {
++      const std::string cur = rex::cvar::GetFlagByName("gpu_backend");
++      ImGui::PushID("gpu_backend");
++      ImGui::TextUnformatted("Graphics backend");
++      ImGui::SameLine(value_x);
++      ImGui::SetNextItemWidth(230.0f);
++      if (ImGui::BeginCombo("##q", cur == "vulkan" ? "Vulkan" : "Direct3D 12 (experimental, untested)")) {
++        if (ImGui::Selectable("Direct3D 12 (experimental, untested)", cur != "vulkan"))
++          set("gpu_backend", "d3d12");
++        if (ImGui::Selectable("Vulkan", cur == "vulkan"))
++          set("gpu_backend", "vulkan");
++        ImGui::EndCombo();
++      }
++      restart_note("gpu_backend");
++      ImGui::PopID();
++    }
++  }
++  if (rex::cvar::GetFlagInfo("present_effect") &&
++      rex::cvar::GetFlagInfo("present_cas_additional_sharpness")) {
++    const std::string eff = rex::cvar::GetFlagByName("present_effect");
++    const double cur = std::atof(rex::cvar::GetFlagByName("present_cas_additional_sharpness").c_str());
++    struct Level {
++      const char* label;
++      double v;
++    };
++    static const Level levels[] = {{"Low", 0.2}, {"Medium", 0.5}, {"High", 0.8}, {"Max", 1.0}};
++    int cur_idx = 0;
++    double best = 1e9;
++    for (int i = 0; i < 4; ++i) {
++      if (std::abs(levels[i].v - cur) < best) {
++        best = std::abs(levels[i].v - cur);
++        cur_idx = i;
++      }
++    }
++    // Entries: 0 = Off, 1..4 = CAS at each level.
++    int cur_entry = eff == "cas" ? 1 + cur_idx : 0;
++    ImGui::PushID("sharpening");
++    ImGui::TextUnformatted("Sharpening (CAS)");
++    ImGui::SameLine(value_x);
++    ImGui::SetNextItemWidth(230.0f);
++    auto entry_label = [&](int e) -> std::string {
++      return e == 0 ? "Off" : std::string("CAS, ") + levels[e - 1].label;
++    };
++    auto apply = [&](int e) {
++      if (e == 0) {
++        rex::cvar::SetFlagByName("present_effect", "bilinear");
++      } else {
++        rex::cvar::SetFlagByName("present_effect", "cas");
++        rex::cvar::SetFlagByName("present_cas_additional_sharpness", std::to_string(levels[e - 1].v));
++      }
++      rex::cvar::SaveConfig(config_path_);
++    };
++    if (pad_mode_) {
++      bool clicked = ImGui::Button((entry_label(cur_entry) + "  >##cyc").c_str(), ImVec2(230.0f, 0));
++      int step = clicked ? 1 : 0;
++      if (ImGui::IsItemFocused()) {
++        if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight))
++          step = 1;
++        else if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft))
++          step = -1;
++      }
++      if (step != 0)
++        apply((cur_entry + step + 5) % 5);
++    } else if (ImGui::BeginCombo("##q", entry_label(cur_entry).c_str())) {
++      for (int e = 0; e < 5; ++e) {
++        if (ImGui::Selectable(entry_label(e).c_str(), e == cur_entry))
++          apply(e);
++      }
++      ImGui::EndCombo();
++    }
++    restart_note("present_effect");
++    ImGui::PopID();
++  }
++  checkbox("Fullscreen (F11)", "fullscreen");
++  checkbox("VSync (no screen tearing)", "vsync");
++  combo("Texture sharpness", "anisotropic_override",
++        {{"Off", 0}, {"4x", 3}, {"8x", 4}, {"16x (best)", 5}});
++  checkbox("Bloom off (glow)", "ufc3_no_bloom");
++  checkbox("Depth-of-field blur off", "ufc3_no_dof");
++  checkbox("Mute and ignore pad when unfocused", "pause_on_focus_loss");
++  checkbox("Load mods folder", "mods_enabled");
++  checkbox("Unlock everything", "ufc3_unlock_all");
++  checkbox("Free unlock-shop purchases", "ufc3_free_unlock_points");
++
++  {
++    ImGui::Spacing();
++    ImGui::TextUnformatted("Saves");
++    const auto saves = ResolveSavesDir();
++    if (saves.empty()) {
++      ImGui::TextDisabled("Saves folder not found.");
++    } else {
++      const auto backups = (saves.parent_path() / "save-backups");
++      if (ImGui::Button("Back up saves")) {
++        confirm_restore_ = false;
++        auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
++        std::tm tm_buf{};
++#ifdef _WIN32
++        localtime_s(&tm_buf, &now);
++#else
++        localtime_r(&now, &tm_buf);
++#endif
++        char stamp[32];
++        std::strftime(stamp, sizeof(stamp), "%Y-%m-%d_%H-%M-%S", &tm_buf);
++        std::string err;
++        if (CopySaves(saves, backups / stamp, &err)) {
++          save_status_ = std::string("Backed up to save-backups\\") + stamp;
++        } else {
++          save_status_ = "Backup failed: " + err;
++        }
++        REXLOG_INFO("Saves: {}", save_status_);
++      }
++      ImGui::SameLine();
++      if (ImGui::Button("Restore latest"))
++        confirm_restore_ = true;
++      ImGui::SameLine();
++      if (ImGui::Button("Open saves folder")) {
++#ifdef _WIN32
++        ShellExecuteW(nullptr, L"open", saves.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
++#endif
++      }
++      if (confirm_restore_) {
++        std::filesystem::path latest;
++        std::error_code ec;
++        for (auto& e : std::filesystem::directory_iterator(backups, ec)) {
++          if (e.is_directory(ec) && (latest.empty() || e.path().filename() > latest.filename()))
++            latest = e.path();
++        }
++        if (latest.empty()) {
++          save_status_ = "No backups found.";
++          confirm_restore_ = false;
++        } else {
++          ImGui::TextColored(imgui_drawer()->style().settings.warning,
++                             "Overwrite current saves with %s?", latest.filename().string().c_str());
++          if (ImGui::Button("Yes, restore")) {
++            std::string err;
++            if (CopySaves(latest, saves, &err))
++              save_status_ = "Restored " + latest.filename().string() +
++                             " (go back to the title screen and reload)";
++            else
++              save_status_ = "Restore failed: " + err;
++            REXLOG_INFO("Saves: {}", save_status_);
++            confirm_restore_ = false;
++          }
++          ImGui::SameLine();
++          if (ImGui::Button("Cancel"))
++            confirm_restore_ = false;
++        }
++      }
++      if (!save_status_.empty())
++        ImGui::TextDisabled("%s", save_status_.c_str());
++    }
++  }
++
++  if (on_quit_) {
++    ImGui::Spacing();
++    if (ImGui::Button("Quit game", ImVec2(140.0f, 0)))
++      on_quit_();
++    ImGui::SameLine();
++    ImGui::TextDisabled("F4 closes this menu");
++  }
++  ImGui::Spacing();
++}
++
++void SettingsDialog::OnDraw(ImGuiIO& io) {
++  if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f || io.MouseClicked[0]) {
++    pad_mode_ = false;
++  } else if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown) ||
++             ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp) ||
++             ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown)) {
++    pad_mode_ = true;
++  }
++  // B closes the menu, unless it just closed a combo popup.
++  if ((ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
++       ImGui::IsKeyPressed(ImGuiKey_Escape, false)) &&
++      !popup_open_prev_ && !io.WantTextInput && on_close_) {
++    on_close_();
++  }
++  struct PopupTracker {
++    bool& flag;
++    ~PopupTracker() {
++      flag = ImGui::IsPopupOpen(nullptr,
++                                ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
++    }
++  } popup_tracker{popup_open_prev_};
++
+   auto& registry = rex::cvar::GetRegistry();
+ 
+   // Collect sorted unique category paths.
+@@ -199,13 +531,19 @@ void SettingsDialog::OnDraw(ImGuiIO& /*io*/) {
+   const std::string search(search_buf_);
+   const bool searching = !search.empty();
+ 
+-  ImGui::SetNextWindowSize(ImVec2(620, 480), ImGuiCond_FirstUseEver);
++  ImGui::SetNextWindowSize(ImVec2(680, 620), ImGuiCond_FirstUseEver);
+   ImGui::SetNextWindowBgAlpha(0.85f);
+   if (!ImGui::Begin("Settings##rex", nullptr, ImGuiWindowFlags_NoCollapse)) {
+     ImGui::End();
+     return;
+   }
+ 
++  DrawQuickSettings();
++  if (!ImGui::CollapsingHeader("All engine settings (advanced)")) {
++    ImGui::End();
++    return;
++  }
++
+   // Search bar at the top (full width).
+   ImGui::SetNextItemWidth(-1.0f);
+   ImGui::InputText("##search", search_buf_, sizeof(search_buf_));
+diff --git a/src/ui/rex_app.cpp b/src/ui/rex_app.cpp
+index 9ff54e8..4634a3e 100644
+--- a/src/ui/rex_app.cpp
++++ b/src/ui/rex_app.cpp
+@@ -107,6 +107,13 @@ bool ReXApp::OnInitialize() {
+ bool ReXApp::SetupEnvironment() {
+   auto exe_dir = rex::filesystem::GetExecutableFolder();
+ 
++  // Load the default config before resolving paths so path cvars set in the TOML
++  // (user_data_root etc.) apply when the exe is launched without command-line flags.
++  // Command-line values still outrank the file.
++  auto default_config_path = exe_dir / (std::string(GetName()) + ".toml");
++  if (std::filesystem::exists(default_config_path))
++    rex::cvar::LoadConfig(default_config_path);
++
+   std::filesystem::path game_dir;
+   std::string game_data_cvar = REXCVAR_GET(game_data_root);
+   if (!game_data_cvar.empty()) {
+@@ -119,7 +126,13 @@ bool ReXApp::SetupEnvironment() {
+   if (!user_data_cvar.empty()) {
+     user_dir = user_data_cvar;
+   } else {
+-    user_dir = rex::filesystem::GetUserFolder() / GetName();
++    // Portable layout: saves live in ..\saves next to the exe's folder when it exists.
++    auto portable_saves = (exe_dir / ".." / "saves").lexically_normal();
++    std::error_code portable_ec;
++    if (std::filesystem::is_directory(portable_saves, portable_ec))
++      user_dir = portable_saves;
++    else
++      user_dir = rex::filesystem::GetUserFolder() / GetName();
+   }
+ 
+   // Update data: cvar override, or empty (opt-in)
+@@ -255,6 +268,28 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
+         return true;
+       return !imgui_drawer_->GetIO().WantCaptureMouse;
+     });
++    if (imgui_drawer_) {
++      // Pad: Back+Start toggles the F4 overlay; while it is open the pad drives
++      // the overlay (ImGui nav) and is hidden from the game.
++      input_sys->SetPadHook([this](const rex::input::X_INPUT_GAMEPAD& pad) {
++        const uint16_t b = pad.buttons;
++        constexpr uint16_t kCombo =
++            rex::input::X_INPUT_GAMEPAD_BACK | rex::input::X_INPUT_GAMEPAD_START;
++        const bool combo = (b & kCombo) == kCombo;
++        const bool was_combo = pad_combo_down_.exchange(combo);
++        if (combo && !was_combo && toggle_settings_) {
++          REXLOG_INFO("Pad: Back+Start toggles settings overlay");
++          app_context().CallInUIThreadDeferred([this] { toggle_settings_(); });
++        }
++        const bool open = settings_overlay_ != nullptr;
++        if (open) {
++          imgui_drawer_->SetGamepadInput(true, combo ? 0 : b, pad.thumb_lx, pad.thumb_ly);
++        }
++        // Hide the pad while open and while the combo is held (so the game
++        // never sees Back/Start of the toggle press).
++        return open || combo;
++      });
++    }
+   }
+ 
+   std::string xex_image = "game:\\default.xex";
+@@ -353,7 +388,9 @@ bool ReXApp::SetupPresentation() {
+   auto on_window_cvar = [this](const char* name, std::function<void(std::string_view)> apply) {
+     rex::cvar::RegisterChangeCallback(
+         name, [this, apply = std::move(apply)](std::string_view, std::string_view value) {
+-          app_context().CallInUIThread([this, apply, value = std::string(value)] {
++          // Deferred even on the UI thread: the settings overlay changes these
++          // from inside its ImGui draw, and resizing the window mid-frame is unsafe.
++          app_context().CallInUIThreadDeferred([this, apply, value = std::string(value)] {
+             if (window_) {
+               apply(value);
+             }
+@@ -436,12 +473,37 @@ void ReXApp::SetupOverlays(rex::ui::Presenter* presenter, rex::ui::ImmediateDraw
+       console_overlay_ = std::make_unique<ui::ConsoleDialog>(imgui_drawer_.get(), log_sink_);
+     }
+   });
+-  rex::ui::RegisterBind("bind_settings", "F4", "Toggle settings overlay", [this] {
++  toggle_settings_ = [this] {
+     if (settings_overlay_) {
+       settings_overlay_.reset();
++      imgui_drawer_->SetGamepadInput(false, 0, 0, 0);
+     } else {
+-      settings_overlay_ = std::make_unique<ui::SettingsDialog>(imgui_drawer_.get(), config_path_);
++      settings_overlay_ =
++          std::make_unique<ui::SettingsDialog>(imgui_drawer_.get(), config_path_, [this] {
++            // Deferred so the window isn't closed in the middle of drawing the overlay.
++            app_context().CallInUIThreadDeferred([this] {
++              if (window_) {
++                window_->RequestClose();
++              }
++            });
++          });
++      settings_overlay_->set_on_close([this] {
++        // Deferred: the dialog must not be destroyed while it is drawing.
++        app_context().CallInUIThreadDeferred([this] {
++          if (settings_overlay_) {
++            REXLOG_INFO("Pad: B closes settings overlay");
++            settings_overlay_.reset();
++            imgui_drawer_->SetGamepadInput(false, 0, 0, 0);
++          }
++        });
++      });
+     }
++  };
++  rex::ui::RegisterBind("bind_settings", "F4", "Toggle settings overlay",
++                        [this] { toggle_settings_(); });
++  rex::ui::RegisterBind("bind_fullscreen", "F11", "Toggle borderless fullscreen", [] {
++    const bool now = rex::string::from_string<bool>(rex::cvar::GetFlagByName("fullscreen"), false);
++    rex::cvar::SetFlagByName("fullscreen", now ? "false" : "true");
+   });
+   rex::ui::RegisterBind("bind_achievements", "F7", "Toggle achievements overlay", [this] {
+     if (achievements_overlay_) {
+@@ -588,6 +650,7 @@ void ReXApp::OnDestroy() {
+   rex::ui::UnregisterBind("bind_debug_overlay");
+   rex::ui::UnregisterBind("bind_console");
+   rex::ui::UnregisterBind("bind_settings");
++  rex::ui::UnregisterBind("bind_fullscreen");
+   rex::ui::UnregisterBind("bind_achievements");
+ 
+   // ImGui cleanup (reverse of setup)

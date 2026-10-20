@@ -1,0 +1,104 @@
+﻿# Function entry points the v0.10 analyzer misses.
+[functions]
+# Branch targets left outside any function at codegen ("target not in any function").
+0x82691BC0 = { name = "sub_82691BC0" }
+0x82F451D0 = { name = "sub_82F451D0" }
+0x8232F760 = { name = "sub_8232F760" }
+0x82314918 = { name = "sub_82314918" }
+# Indirect-call targets merged into a neighbour; found at runtime
+# ("Call to invalid or unregistered function").
+0x831820A8 = { name = "sub_831820A8" }
+0x8300EC08 = { name = "sub_8300EC08" }
+0x83008868 = { name = "sub_83008868" }
+0x827446B8 = { name = "sub_827446B8" }
+0x8300F720 = { name = "sub_8300F720" }
+0x83008838 = { name = "sub_83008838" }
+# Statically discovered indirect-call targets (tools\find_indirect_targets.py):
+# leaf/thunk functions after a terminator, referenced from vtables or lis/addi.
+0x82220CA8 = { name = "sub_82220CA8" }  # data ref @82000B64, owner 82220C98
+0x82234320 = { name = "sub_82234320" }  # data ref @82001244, owner 822342C0
+0x82267960 = { name = "sub_82267960" }  # data ref @82004184, owner 82267898
+0x822AE5C8 = { name = "sub_822AE5C8" }  # data ref @8200F040, owner 822AE5B8
+0x822AF8B8 = { name = "sub_822AF8B8" }  # data ref @8200F12C, owner 822AF890
+0x823D5F40 = { name = "sub_823D5F40" }  # data ref @82024494, owner 823D5F30
+0x823DD7D0 = { name = "sub_823DD7D0" }  # data ref @82024B20, owner 823DD7B8
+0x823DD7E8 = { name = "sub_823DD7E8" }  # data ref @82024B3C, owner 823DD7B8
+0x823DD808 = { name = "sub_823DD808" }  # data ref @82024B34, owner 823DD7F0
+0x823DD9A0 = { name = "sub_823DD9A0" }  # data ref @82024B88, owner 823DD980
+0x823DD9C0 = { name = "sub_823DD9C0" }  # data ref @82024B8C, owner 823DD980
+0x823DD9E0 = { name = "sub_823DD9E0" }  # data ref @82024B90, owner 823DD980
+0x823DDA00 = { name = "sub_823DDA00" }  # data ref @82024B94, owner 823DD980
+0x823DDA20 = { name = "sub_823DDA20" }  # data ref @82024B98, owner 823DD980
+0x823DDA40 = { name = "sub_823DDA40" }  # data ref @82024B9C, owner 823DD980
+0x823DDA60 = { name = "sub_823DDA60" }  # data ref @82024BA0, owner 823DD980
+0x823DDA80 = { name = "sub_823DDA80" }  # data ref @82024BA4, owner 823DD980
+0x823DDAA0 = { name = "sub_823DDAA0" }  # data ref @82024BA8, owner 823DD980
+0x823DDAC0 = { name = "sub_823DDAC0" }  # data ref @82024BAC, owner 823DD980
+0x823DF328 = { name = "sub_823DF328" }  # code ref @823E18F0, owner 823DF318
+0x8258A2A0 = { name = "sub_8258A2A0" }  # code ref @8258A4B4, owner 8258A288
+0x8258A2C8 = { name = "sub_8258A2C8" }  # code ref @8258A4B8, owner 8258A288
+0x8258A2F0 = { name = "sub_8258A2F0" }  # code ref @8258A4BC, owner 8258A288
+0x8258A308 = { name = "sub_8258A308" }  # code ref @8258A4C0, owner 8258A288
+0x8258A320 = { name = "sub_8258A320" }  # code ref @8258A484, owner 8258A288
+0x8258A338 = { name = "sub_8258A338" }  # code ref @8258A47C, owner 8258A288
+0x8258A350 = { name = "sub_8258A350" }  # code ref @8258A480, owner 8258A288
+0x8273F868 = { name = "sub_8273F868" }  # data ref @820E80BC, owner 8273F840
+0x828F74B8 = { name = "sub_828F74B8" }  # data ref @82010E98, owner 828F7498
+0x828F74D8 = { name = "sub_828F74D8" }  # data ref @82010E90, owner 828F7498
+0x82A03268 = { name = "sub_82A03268" }  # data ref @82115FA0, owner 82A03240
+0x82A06710 = { name = "sub_82A06710" }  # data ref @821163A0, owner 82A06700
+0x82A9A8B0 = { name = "sub_82A9A8B0" }  # data ref @82100298, owner 82A9A888
+0x82B4E120 = { name = "sub_82B4E120" }  # data ref @82134038, owner 82B4E0D0
+0x82D23878 = { name = "sub_82D23878" }  # data ref @82104D98, owner 82D23838
+0x82E38B50 = { name = "sub_82E38B50" }  # data ref @821520EC, owner 82E38A30
+0x82E82B40 = { name = "sub_82E82B40" }  # data ref @82158E9C, owner 82E82B18
+0x82EB7860 = { name = "sub_82EB7860" }  # data ref @8215D4D8, owner 82EB7848
+0x82ECB978 = { name = "sub_82ECB978" }  # data ref @8215E2A4, owner 82ECB970
+0x82F8B938 = { name = "sub_82F8B938" }  # data ref @82167EBC, owner 82F8B930
+0x82F8E898 = { name = "sub_82F8E898" }  # data ref @8216805C, owner 82F8E890
+0x82FA45B0 = { name = "sub_82FA45B0" }  # data ref @8217A20C, owner 82FA4550
+0x82FAABC0 = { name = "sub_82FAABC0" }  # data ref @8217A3E0, owner 82FAAB08
+0x83006550 = { name = "sub_83006550" }  # data ref @8217DBC8, owner 83006548
+0x83008830 = { name = "sub_83008830" }  # data ref @8217DC6C, owner 83008828
+0x83008848 = { name = "sub_83008848" }  # data ref @8217DC94, owner 83008840
+0x83008850 = { name = "sub_83008850" }  # data ref @8217DC70, owner 83008840
+0x83008858 = { name = "sub_83008858" }  # data ref @8217DC88, owner 83008840
+0x83008860 = { name = "sub_83008860" }  # data ref @8217DCA8, owner 83008840
+0x830088C0 = { name = "sub_830088C0" }  # data ref @8217DC68, owner 83008840
+0x8300EBE0 = { name = "sub_8300EBE0" }  # data ref @8217DC74, owner 8300EBD8
+0x8300EBE8 = { name = "sub_8300EBE8" }  # data ref @8217E014, owner 8300EBD8
+0x8300EBF8 = { name = "sub_8300EBF8" }  # data ref @8217DFF8, owner 8300EBF0
+0x8300EC00 = { name = "sub_8300EC00" }  # data ref @8217DC84, owner 8300EBF0
+0x8300EF98 = { name = "sub_8300EF98" }  # data ref @8217E08C, owner 8300EF90
+0x8300EFA8 = { name = "sub_8300EFA8" }  # data ref @8217E000, owner 8300EFA0
+0x8300EFB0 = { name = "sub_8300EFB0" }  # data ref @8217DFC8, owner 8300EFA0
+0x8300EFB8 = { name = "sub_8300EFB8" }  # data ref @8217DC80, owner 8300EFA0
+0x8300EFC0 = { name = "sub_8300EFC0" }  # data ref @8217DCAC, owner 8300EFA0
+0x8300EFC8 = { name = "sub_8300EFC8" }  # data ref @8217DC78, owner 8300EFA0
+0x8300EFD0 = { name = "sub_8300EFD0" }  # data ref @8217E0A8, owner 8300EFA0
+0x830102F0 = { name = "sub_830102F0" }  # data ref @8217E14C, owner 830102E8
+0x83010FF0 = { name = "sub_83010FF0" }  # data ref @8217E1FC, owner 83010FE8
+0x83010FF8 = { name = "sub_83010FF8" }  # data ref @8217E20C, owner 83010FE8
+0x83013D68 = { name = "sub_83013D68" }  # data ref @8217E3C4, owner 83013CB0
+0x83021FA0 = { name = "sub_83021FA0" }  # data ref @821821BC, owner 83021F90
+0x8305D1A0 = { name = "sub_8305D1A0" }  # code ref @8305E634, owner 8305D188
+0x83119128 = { name = "sub_83119128" }  # data ref @821A6118, owner 83119118
+0x83125868 = { name = "sub_83125868" }  # data ref @821AB800, owner 83125840
+# Adjustor thunk after a noreturn bl, vtable slot; crashed at fight load.
+0x82DE5C18 = { name = "sub_82DE5C18" }  # data ref @82154460, owner 82DE5910
+
+# PRIDE twins (src/pride_range.h): PRIDE IDs past the disc's 300-333.
+[[midasm_hook]]
+address = 0x82EF6118
+name = "ufc3_pride_range_end"
+registers = ["r20"]
+
+[[midasm_hook]]
+address = 0x829A53C4
+name = "ufc3_pride_fold"
+registers = ["r11"]
+
+[[midasm_hook]]
+address = 0x82A70414
+name = "ufc3_pride_fold"
+registers = ["r11"]
