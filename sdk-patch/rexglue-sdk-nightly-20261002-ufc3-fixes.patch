@@ -92,6 +92,59 @@ index 48100be..980ff9e 100644
    std::unique_ptr<Entry> root_entry_;
    bool read_only_;
    bool allow_share_delete_;
+diff --git a/include/rex/graphics/flags.h b/include/rex/graphics/flags.h
+index 2cf24c4..3c19bde 100644
+--- a/include/rex/graphics/flags.h
++++ b/include/rex/graphics/flags.h
+@@ -25,6 +25,9 @@ REXCVAR_DECLARE(int32_t, draw_resolution_scale_x);
+ REXCVAR_DECLARE(int32_t, draw_resolution_scale_y);
+ REXCVAR_DECLARE(bool, resolve_resolution_scale_fill_half_pixel_offset);
+ REXCVAR_DECLARE(bool, draw_resolution_scaled_texture_offsets);
++REXCVAR_DECLARE(std::string, guest_pixel_center_pixel_shaders);
++// Whether guest_pixel_center_pixel_shaders lists this pixel shader.
++bool IsGuestPixelCenterPixelShader(uint64_t ucode_data_hash);
+ REXCVAR_DECLARE(std::string, readback_resolve);
+ REXCVAR_DECLARE(bool, readback_resolve_half_pixel_offset);
+ REXCVAR_DECLARE(bool, readback_memexport);
+diff --git a/include/rex/graphics/pipeline/shader/dxbc_translator.h b/include/rex/graphics/pipeline/shader/dxbc_translator.h
+index 3b0fd61..969d05f 100644
+--- a/include/rex/graphics/pipeline/shader/dxbc_translator.h
++++ b/include/rex/graphics/pipeline/shader/dxbc_translator.h
+@@ -176,6 +176,10 @@ class DxbcShaderTranslator : public ShaderTranslator {
+       uint32_t dynamic_addressable_register_count : 8;
+       // Non-ROV - depth / stencil output mode.
+       DepthStencilMode depth_stencil_mode : 2;
++      // With resolution scaling, evaluate the interpolators at the center of
++      // the guest pixel instead of the host pixel (see
++      // guest_pixel_center_pixel_shaders).
++      uint32_t interpolate_at_guest_pixel_center : 1;
+     } pixel;
+ 
+     explicit Modification(uint64_t modification_value = 0) : value(modification_value) {
+diff --git a/include/rex/graphics/pipeline/shader/spirv_translator.h b/include/rex/graphics/pipeline/shader/spirv_translator.h
+index dce3dbf..b8719b9 100644
+--- a/include/rex/graphics/pipeline/shader/spirv_translator.h
++++ b/include/rex/graphics/pipeline/shader/spirv_translator.h
+@@ -88,6 +88,10 @@ class SpirvShaderTranslator : public ShaderTranslator {
+       uint32_t param_gen_point : 1;
+       // For host render targets - depth / stencil output mode.
+       DepthStencilMode depth_stencil_mode : 3;
++      // With resolution scaling, evaluate the interpolators at the center of
++      // the guest pixel instead of the host pixel (see
++      // guest_pixel_center_pixel_shaders).
++      uint32_t interpolate_at_guest_pixel_center : 1;
+     } pixel;
+     uint64_t value = 0;
+ 
+@@ -563,6 +567,8 @@ class SpirvShaderTranslator : public ShaderTranslator {
+ 
+   // Returns UINT32_MAX if PsParamGen doesn't need to be written.
+   uint32_t GetPsParamGenInterpolator() const;
++  // Interpolators to move to the guest pixel center with resolution scaling.
++  uint32_t GetInterpolatorsAtGuestPixelCenter() const;
+ 
+   // Must be called before emitting any SPIR-V operations that must be in a
+   // block in translator callbacks to ensure that if the last instruction added
 diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
 index 4d85a2b..83b9375 100644
 --- a/include/rex/graphics/shared_memory.h
@@ -892,6 +945,254 @@ index 682b23d..bfa4d79 100644
          if (!std::filesystem::exists(file_path)) {
            entry->Delete();
            entry = nullptr;
+diff --git a/src/graphics/d3d12/pipeline_cache.cpp b/src/graphics/d3d12/pipeline_cache.cpp
+index 8e6b854..9538c17 100644
+--- a/src/graphics/d3d12/pipeline_cache.cpp
++++ b/src/graphics/d3d12/pipeline_cache.cpp
+@@ -873,6 +873,10 @@ DxbcShaderTranslator::Modification PipelineCache::GetCurrentPixelShaderModificat
+     modification.pixel.param_gen_point = 0;
+   }
+ 
++  modification.pixel.interpolate_at_guest_pixel_center =
++      uint32_t(render_target_cache_.IsDrawResolutionScaled() &&
++               IsGuestPixelCenterPixelShader(shader.ucode_data_hash()));
++
+   if (render_target_cache_.GetPath() == RenderTargetCache::Path::kHostRenderTargets) {
+     using DepthStencilMode = DxbcShaderTranslator::Modification::DepthStencilMode;
+     if (render_target_cache_.depth_float24_convert_in_pixel_shader() &&
+diff --git a/src/graphics/flags.cpp b/src/graphics/flags.cpp
+index e2983a4..7ebabb3 100644
+--- a/src/graphics/flags.cpp
++++ b/src/graphics/flags.cpp
+@@ -9,6 +9,11 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <cstdlib>
++#include <mutex>
++#include <string>
++#include <unordered_set>
++
+ #include <rex/graphics/flags.h>
+ #include <rex/logging.h>
+ #include <rex/ui/renderdoc_api.h>
+@@ -32,6 +37,52 @@ REXCVAR_DEFINE_BOOL(gpu_debug_markers, false, "GPU",
+                     "Insert debug markers into GPU command streams for tools "
+                     "like PIX and RenderDoc. Automatically enabled when "
+                     "RenderDoc is detected.");
++REXCVAR_DEFINE_STRING(
++    guest_pixel_center_pixel_shaders, "", "GPU",
++    "Comma-separated pixel shader ucode hashes (16 hex digits) whose interpolators are "
++    "evaluated at the guest pixel center with resolution scaling, so every host pixel of "
++    "a guest pixel computes what the guest pixel computes. For feedback passes that "
++    "update data maps (GPU particle state, decal maps) by sampling their previous "
++    "contents at the interpolated coordinate: at the host pixel center the sample may "
++    "land in the neighboring guest texel, and the map then drifts a host texel per pass.");
++
++bool IsGuestPixelCenterPixelShader(uint64_t ucode_data_hash) {
++  static const std::unordered_set<uint64_t> hashes = []() {
++    std::unordered_set<uint64_t> parsed;
++    const std::string& list = REXCVAR_GET(guest_pixel_center_pixel_shaders);
++    size_t start = 0;
++    while (start < list.size()) {
++      size_t end = list.find(',', start);
++      if (end == std::string::npos) {
++        end = list.size();
++      }
++      std::string item = list.substr(start, end - start);
++      item.erase(0, item.find_first_not_of(" \t"));
++      item.erase(item.find_last_not_of(" \t") + 1);
++      if (!item.empty()) {
++        char* parse_end = nullptr;
++        uint64_t hash = std::strtoull(item.c_str(), &parse_end, 16);
++        if (parse_end && !*parse_end) {
++          parsed.insert(hash);
++        } else {
++          REXLOG_WARN("guest_pixel_center_pixel_shaders: ignoring \"{}\"", item);
++        }
++      }
++      start = end + 1;
++    }
++    return parsed;
++  }();
++  if (hashes.empty() || hashes.find(ucode_data_hash) == hashes.end()) {
++    return false;
++  }
++  static std::mutex logged_mutex;
++  static std::unordered_set<uint64_t> logged;
++  std::lock_guard<std::mutex> lock(logged_mutex);
++  if (logged.insert(ucode_data_hash).second) {
++    REXLOG_INFO("Pixel shader {:016X}: interpolating at guest pixel centers", ucode_data_hash);
++  }
++  return true;
++}
+ 
+ bool IsGpuDebugMarkersEnabled() {
+   static bool cached = false;
+diff --git a/src/graphics/pipeline/shader/dxbc_translator.cpp b/src/graphics/pipeline/shader/dxbc_translator.cpp
+index 2c31a0e..1f2aa90 100644
+--- a/src/graphics/pipeline/shader/dxbc_translator.cpp
++++ b/src/graphics/pipeline/shader/dxbc_translator.cpp
+@@ -639,6 +639,57 @@ void DxbcShaderTranslator::StartPixelShader() {
+                  : dxbc::Src::LF(0.0f));
+   }
+ 
++  // With resolution scaling, move the interpolants from the host pixel center
++  // to the center of the guest pixel containing it if requested, along the
++  // screen-space derivatives (exact for interpolants linear in screen space).
++  uint32_t interpolators_at_guest_pixel_center =
++      (shader_modification.pixel.interpolate_at_guest_pixel_center &&
++       (draw_resolution_scale_x_ > 1 || draw_resolution_scale_y_ > 1))
++          ? interpolator_mask & ((UINT32_C(1) << std::min(register_count(),
++                                                          uint32_t(xenos::kMaxInterpolators))) -
++                                 1)
++          : 0;
++  if (param_gen_interpolator != UINT32_MAX) {
++    interpolators_at_guest_pixel_center &= ~(UINT32_C(1) << param_gen_interpolator);
++  }
++  if (interpolators_at_guest_pixel_center) {
++    uint32_t guest_center_temp = PushSystemTemp();
++    uint32_t derivative_temp = PushSystemTemp();
++    uint32_t interpolant_temp = PushSystemTemp();
++    in_position_used_ |= 0b0011;
++    dxbc::Src in_position(dxbc::Src::V1D(in_reg_ps_position_));
++    // XY - offset from the host pixel center to the guest pixel center, in host
++    // pixels: (floor(position / scale) + 0.5) * scale - position.
++    a_.OpMul(dxbc::Dest::R(guest_center_temp, 0b0011), in_position,
++             dxbc::Src::LF(1.0f / float(draw_resolution_scale_x_),
++                           1.0f / float(draw_resolution_scale_y_), 1.0f, 1.0f));
++    a_.OpRoundNI(dxbc::Dest::R(guest_center_temp, 0b0011), dxbc::Src::R(guest_center_temp));
++    a_.OpMAd(dxbc::Dest::R(guest_center_temp, 0b0011), dxbc::Src::R(guest_center_temp),
++             dxbc::Src::LF(float(draw_resolution_scale_x_), float(draw_resolution_scale_y_), 1.0f,
++                           1.0f),
++             dxbc::Src::LF(0.5f * float(draw_resolution_scale_x_),
++                           0.5f * float(draw_resolution_scale_y_), 0.0f, 0.0f));
++    a_.OpAdd(dxbc::Dest::R(guest_center_temp, 0b0011), dxbc::Src::R(guest_center_temp),
++             -in_position);
++    uint32_t interpolator_index;
++    while (rex::bit_scan_forward(interpolators_at_guest_pixel_center, &interpolator_index)) {
++      interpolators_at_guest_pixel_center &= ~(UINT32_C(1) << interpolator_index);
++      dxbc::Src interpolant(dxbc::Src::V1D(
++          in_reg_ps_interpolators_ +
++          rex::bit_count(interpolator_mask & ((UINT32_C(1) << interpolator_index) - 1))));
++      a_.OpDerivRTXFine(dxbc::Dest::R(derivative_temp), interpolant);
++      a_.OpMAd(dxbc::Dest::R(interpolant_temp), dxbc::Src::R(derivative_temp),
++               dxbc::Src::R(guest_center_temp, dxbc::Src::kXXXX), interpolant);
++      a_.OpDerivRTYFine(dxbc::Dest::R(derivative_temp), interpolant);
++      a_.OpMAd(uses_register_dynamic_addressing ? dxbc::Dest::X(0, interpolator_index)
++                                                : dxbc::Dest::R(interpolator_index),
++               dxbc::Src::R(derivative_temp), dxbc::Src::R(guest_center_temp, dxbc::Src::kYYYY),
++               dxbc::Src::R(interpolant_temp));
++    }
++    // interpolant_temp, derivative_temp, guest_center_temp.
++    PopSystemTemp(3);
++  }
++
+   // Write the pixel parameters to the specified interpolator register
+   // (PsParamGen). The negate modified in DXBC flips the sign bit, so it can be
+   // used to write the flags.
+diff --git a/src/graphics/pipeline/shader/spirv_translator.cpp b/src/graphics/pipeline/shader/spirv_translator.cpp
+index 1774f97..8ce8c2a 100644
+--- a/src/graphics/pipeline/shader/spirv_translator.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator.cpp
+@@ -1626,6 +1626,22 @@ uint32_t SpirvShaderTranslator::GetPsParamGenInterpolator() const {
+              : UINT32_MAX;
+ }
+ 
++uint32_t SpirvShaderTranslator::GetInterpolatorsAtGuestPixelCenter() const {
++  assert_true(is_pixel_shader());
++  if (!GetSpirvShaderModification().pixel.interpolate_at_guest_pixel_center ||
++      (draw_resolution_scale_x_ <= 1 && draw_resolution_scale_y_ <= 1)) {
++    return 0;
++  }
++  uint32_t interpolators =
++      GetModificationInterpolatorMask() &
++      ((UINT32_C(1) << std::min(register_count(), uint32_t(xenos::kMaxInterpolators))) - 1);
++  uint32_t param_gen_interpolator = GetPsParamGenInterpolator();
++  if (param_gen_interpolator != UINT32_MAX) {
++    interpolators &= ~(UINT32_C(1) << param_gen_interpolator);
++  }
++  return interpolators;
++}
++
+ void SpirvShaderTranslator::EnsureBuildPointAvailable() {
+   if (!builder_->getBuildPoint()->isTerminated()) {
+     return;
+@@ -2901,7 +2917,8 @@ void SpirvShaderTranslator::StartFragmentShaderBeforeMain() {
+   bool memexport_resolution_scaled = current_shader().memexport_eM_written() &&
+                                      (draw_resolution_scale_x_ > 1 || draw_resolution_scale_y_ > 1);
+   if (edram_fragment_shader_interlock_ || param_gen_needed || memexport_resolution_scaled ||
+-      float24_depth_from_fragment_coordinates || alpha_to_coverage_possible) {
++      float24_depth_from_fragment_coordinates || alpha_to_coverage_possible ||
++      (!is_depth_only_fragment_shader_ && GetInterpolatorsAtGuestPixelCenter())) {
+     input_fragment_coordinates_ = builder_->createVariable(spv::NoPrecision, spv::StorageClassInput,
+                                                            type_float4_, "gl_FragCoord");
+     builder_->addDecoration(input_fragment_coordinates_, spv::DecorationBuiltIn,
+@@ -3181,6 +3198,64 @@ void SpirvShaderTranslator::StartFragmentShaderInMain() {
+                                     id_vector_temp_));
+   }
+ 
++  // With resolution scaling, move the interpolants from the host pixel center
++  // to the center of the guest pixel containing it if requested, along the
++  // screen-space derivatives (exact for interpolants linear in screen space).
++  uint32_t interpolators_at_guest_pixel_center = GetInterpolatorsAtGuestPixelCenter();
++  if (interpolators_at_guest_pixel_center) {
++    assert_true(input_fragment_coordinates_ != spv::NoResult);
++    builder_->addCapability(spv::CapabilityDerivativeControl);
++    // Offset from the host pixel center to the guest pixel center, in host
++    // pixels: (floor(position / scale) + 0.5) * scale - position.
++    spv::Id guest_center_offset[2];
++    for (uint32_t i = 0; i < 2; ++i) {
++      float scale = float(i ? draw_resolution_scale_y_ : draw_resolution_scale_x_);
++      id_vector_temp_.clear();
++      id_vector_temp_.push_back(builder_->makeIntConstant(int(i)));
++      spv::Id position = builder_->createLoad(
++          builder_->createAccessChain(spv::StorageClassInput, input_fragment_coordinates_,
++                                      id_vector_temp_),
++          spv::NoPrecision);
++      spv::Id guest_pixel = builder_->createUnaryBuiltinCall(
++          type_float_, ext_inst_glsl_std_450_, GLSLstd450Floor,
++          builder_->createNoContractionBinOp(spv::OpFMul, type_float_, position,
++                                             builder_->makeFloatConstant(1.0f / scale)));
++      spv::Id guest_center = builder_->createNoContractionBinOp(
++          spv::OpFAdd, type_float_,
++          builder_->createNoContractionBinOp(spv::OpFMul, type_float_, guest_pixel,
++                                             builder_->makeFloatConstant(scale)),
++          builder_->makeFloatConstant(0.5f * scale));
++      guest_center_offset[i] =
++          builder_->createNoContractionBinOp(spv::OpFSub, type_float_, guest_center, position);
++    }
++    uint32_t interpolator_index;
++    while (rex::bit_scan_forward(interpolators_at_guest_pixel_center, &interpolator_index)) {
++      interpolators_at_guest_pixel_center &= ~(UINT32_C(1) << interpolator_index);
++      spv::Id interpolant =
++          builder_->createLoad(input_output_interpolators_[interpolator_index], spv::NoPrecision);
++      interpolant = builder_->createNoContractionBinOp(
++          spv::OpFAdd, type_float4_, interpolant,
++          builder_->createNoContractionBinOp(
++              spv::OpVectorTimesScalar, type_float4_,
++              builder_->createUnaryOp(spv::OpDPdxFine, type_float4_, interpolant),
++              guest_center_offset[0]));
++      interpolant = builder_->createNoContractionBinOp(
++          spv::OpFAdd, type_float4_, interpolant,
++          builder_->createNoContractionBinOp(
++              spv::OpVectorTimesScalar, type_float4_,
++              builder_->createUnaryOp(spv::OpDPdyFine, type_float4_,
++                                      builder_->createLoad(
++                                          input_output_interpolators_[interpolator_index],
++                                          spv::NoPrecision)),
++              guest_center_offset[1]));
++      id_vector_temp_.clear();
++      id_vector_temp_.push_back(builder_->makeIntConstant(int(interpolator_index)));
++      builder_->createStore(interpolant,
++                            builder_->createAccessChain(spv::StorageClassFunction,
++                                                        var_main_registers_, id_vector_temp_));
++    }
++  }
++
+   // Pixel parameters.
+   if (param_gen_interpolator != UINT32_MAX) {
+     Modification modification = GetSpirvShaderModification();
 diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
 index ec0df7c..e295812 100644
 --- a/src/graphics/shared_memory.cpp
@@ -1167,6 +1468,21 @@ index 001f36b..af3be6e 100644
      deferred_command_buffer_.Execute(command_buffer.buffer);
      if (dfn.vkEndCommandBuffer(command_buffer.buffer) != VK_SUCCESS) {
        REXGPU_ERROR("Failed to end a Vulkan command buffer");
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 91ac08f..ccd5c8d 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -987,6 +987,10 @@ SpirvShaderTranslator::Modification VulkanPipelineCache::GetCurrentPixelShaderMo
+     modification.pixel.param_gen_point = 0;
+   }
+ 
++  modification.pixel.interpolate_at_guest_pixel_center =
++      uint32_t(render_target_cache_.IsDrawResolutionScaled() &&
++               IsGuestPixelCenterPixelShader(shader.ucode_data_hash()));
++
+   if (render_target_cache_.GetPath() == RenderTargetCache::Path::kHostRenderTargets) {
+     using DepthStencilMode = SpirvShaderTranslator::Modification::DepthStencilMode;
+     if (render_target_cache_.depth_float24_convert_in_pixel_shader() &&
 diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
 index 6788214..ef7c18e 100644
 --- a/src/graphics/vulkan/shared_memory.cpp

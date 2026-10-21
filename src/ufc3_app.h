@@ -18,6 +18,24 @@ REXCVAR_DEFINE_STRING(gpu_backend, "vulkan", "GPU",
 REXCVAR_DEFINE_BOOL(ufc3_vulkan_hoist, true, "ufc3",
                     "Vulkan: batch shared-memory uploads at the start of each submission "
                     "(sets vulkan_shared_memory_hoist_uploads; fixes the black screen while rocked)");
+REXCVAR_DEFINE_BOOL(ufc3_blood_guest_pixel, true, "ufc3",
+                    "Resolution scale: run the GPU blood simulation and mat stain passes at guest "
+                    "pixel centers (sets guest_pixel_center_pixel_shaders; stops blood sliding "
+                    "across the mat at resolution_scale 2+)");
+
+// The blood droplets are simulated on the GPU (yVParticleMap: a few texels of a
+// 16_16_16_16_FLOAT map per droplet, updated every frame) and painted
+// into a mat-space stain map that yVStainEffect then filters with 3x3 taps.
+// Both sample the previous map at the interpolated texcoord; with resolution
+// scaling the host pixels of a guest texel interpolate it off the guest pixel
+// center, some taps land a host texel into the next particle or stain texel, and
+// the maps drift every frame. Ucode hashes of those passes' pixel shaders:
+inline constexpr const char* kUfc3BloodMapPixelShaders =
+    // yVParticleMap (particle state update, collision, spawn).
+    "D51BE16D6FD8EA5D,325C1C523EDA1AD3,5A19DF07A479BF61,0FB730849209964D,"
+    "CB89AA014AB83634,198330C60B7EA7ED,DA69A0CA56065670,"
+    // yVStainEffect (stain map filters).
+    "A386FAFC1B0204BD,9E3DE715730B6042";
 
 class Ufc3App : public rex::ReXApp {
  public:
@@ -75,6 +93,11 @@ class Ufc3App : public rex::ReXApp {
     if (REXCVAR_GET(ufc3_vulkan_hoist) &&
         !rex::cvar::SetFlagByName("vulkan_shared_memory_hoist_uploads", "true")) {
       REXLOG_WARN("could not enable vulkan_shared_memory_hoist_uploads");
+    }
+    if (REXCVAR_GET(ufc3_blood_guest_pixel) &&
+        rex::cvar::GetFlagByName("guest_pixel_center_pixel_shaders").empty() &&
+        !rex::cvar::SetFlagByName("guest_pixel_center_pixel_shaders", kUfc3BloodMapPixelShaders)) {
+      REXLOG_WARN("could not set guest_pixel_center_pixel_shaders");
     }
   }
 };
