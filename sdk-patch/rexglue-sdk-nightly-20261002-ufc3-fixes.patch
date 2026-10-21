@@ -406,6 +406,32 @@ index 5b80eac..f622e42 100644
    char search_buf_[128] = {};
    std::string selected_category_;
    std::string capturing_bind_name_;
+diff --git a/include/rex/ui/vulkan/device.h b/include/rex/ui/vulkan/device.h
+index 947817f..e193a36 100644
+--- a/include/rex/ui/vulkan/device.h
++++ b/include/rex/ui/vulkan/device.h
+@@ -182,6 +182,8 @@ class VulkanDevice {
+   // `ext_major_minor_` prefix rather than `ext_`).
+   struct Extensions {
+     bool ext_KHR_swapchain = false;                     // #2
++    // Swapchains can opt out of driver-chosen exclusive fullscreen.
++    bool ext_EXT_full_screen_exclusive = false;  // #256
+     bool ext_1_1_KHR_dedicated_allocation = false;      // #128
+     bool ext_EXT_shader_stencil_export = false;         // #141
+     bool ext_1_1_KHR_get_memory_requirements2 = false;  // #147
+diff --git a/include/rex/ui/vulkan/instance.h b/include/rex/ui/vulkan/instance.h
+index 4edde2b..b250d86 100644
+--- a/include/rex/ui/vulkan/instance.h
++++ b/include/rex/ui/vulkan/instance.h
+@@ -109,6 +109,8 @@ class VulkanInstance {
+     bool ext_1_1_KHR_get_physical_device_properties2 = false;  // #60
+     bool ext_EXT_debug_utils = false;                          // #129
+     bool ext_KHR_portability_enumeration = false;              // #395
++    // Needed by VK_EXT_full_screen_exclusive (device).
++    bool ext_KHR_get_surface_capabilities2 = false;  // #120
+   };
+ 
+   const Extensions& extensions() const { return extensions_; }
 diff --git a/src/audio/sdl/sdl_audio_driver.cpp b/src/audio/sdl/sdl_audio_driver.cpp
 index 20a2cd8..ac5e736 100644
 --- a/src/audio/sdl/sdl_audio_driver.cpp
@@ -2621,3 +2647,119 @@ index 9ff54e8..4634a3e 100644
    rex::ui::UnregisterBind("bind_achievements");
  
    // ImGui cleanup (reverse of setup)
+diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
+index 8197bb4..4c920fe 100644
+--- a/src/ui/vulkan/vulkan_device.cpp
++++ b/src/ui/vulkan/vulkan_device.cpp
+@@ -201,6 +201,13 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+   if (with_swapchain) {
+     // #2.
+     XE_UI_VULKAN_STRUCT_EXTENSION(KHR_swapchain)
++#ifdef VK_USE_PLATFORM_WIN32_KHR
++    if (get_physical_device_properties2_supported &&
++        vulkan_instance->extensions().ext_KHR_get_surface_capabilities2) {
++      // #256.
++      XE_UI_VULKAN_STRUCT_EXTENSION(EXT_full_screen_exclusive)
++    }
++#endif
+   }
+ 
+   bool ext_1_2_KHR_sampler_mirror_clamp_to_edge = false;
+diff --git a/src/ui/vulkan/vulkan_instance.cpp b/src/ui/vulkan/vulkan_instance.cpp
+index 914b311..0c2bea5 100644
+--- a/src/ui/vulkan/vulkan_instance.cpp
++++ b/src/ui/vulkan/vulkan_instance.cpp
+@@ -160,6 +160,10 @@ std::unique_ptr<VulkanInstance> VulkanInstance::Create(const bool with_surface,
+     requested_extensions.emplace("VK_KHR_win32_surface",
+                                  &vulkan_instance->extensions_.ext_KHR_win32_surface);
+ #endif
++    // #120. Only for VK_EXT_full_screen_exclusive, which lets the presenter
++    // keep the driver out of exclusive fullscreen.
++    requested_extensions.emplace("VK_KHR_get_surface_capabilities2",
++                                 &vulkan_instance->extensions_.ext_KHR_get_surface_capabilities2);
+ #ifdef VK_USE_PLATFORM_METAL_EXT
+     // #217.
+     requested_extensions.emplace("VK_EXT_metal_surface",
+diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
+index 23645ef..39a4b31 100644
+--- a/src/ui/vulkan/vulkan_presenter.cpp
++++ b/src/ui/vulkan/vulkan_presenter.cpp
+@@ -24,6 +24,7 @@
+ #include <rex/logging.h>
+ #include <rex/math.h>
+ #include <rex/platform.h>
++#include <rex/ui/flags.h>
+ #include <rex/ui/vulkan/presenter.h>
+ #include <rex/ui/vulkan/util.h>
+ 
+@@ -1405,6 +1406,21 @@ VkSwapchainKHR VulkanPresenter::PaintContext::CreateSwapchainForVulkanSurface(
+   }
+   swapchain_create_info.clipped = VK_TRUE;
+   swapchain_create_info.oldSwapchain = old_swapchain;
++#ifdef VK_USE_PLATFORM_WIN32_KHR
++  // Left at the default, NVIDIA's driver takes exclusive fullscreen for a
++  // window that covers the monitor (the borderless fullscreen window), so
++  // every focus change is a display mode switch: the screen goes black for a
++  // few seconds on alt-tab and again on the way back. Borderless stays a
++  // composed window like DXGI flip-model games unless exclusive is wanted.
++  VkSurfaceFullScreenExclusiveInfoEXT full_screen_exclusive_info = {
++      VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_INFO_EXT};
++  if (vulkan_device->extensions().ext_EXT_full_screen_exclusive) {
++    full_screen_exclusive_info.fullScreenExclusive = REXCVAR_GET(fullscreen_exclusive)
++                                                         ? VK_FULL_SCREEN_EXCLUSIVE_DEFAULT_EXT
++                                                         : VK_FULL_SCREEN_EXCLUSIVE_DISALLOWED_EXT;
++    swapchain_create_info.pNext = &full_screen_exclusive_info;
++  }
++#endif
+   VkSwapchainKHR swapchain;
+   if (dfn.vkCreateSwapchainKHR(device, &swapchain_create_info, nullptr, &swapchain) != VK_SUCCESS) {
+     REXLOG_ERROR("VulkanPresenter: Failed to create a swapchain");
+@@ -1412,10 +1428,13 @@ VkSwapchainKHR VulkanPresenter::PaintContext::CreateSwapchainForVulkanSurface(
+   }
+   REXLOG_INFO(
+       "VulkanPresenter: Created {}x{} swapchain with format {}, color space "
+-      "{}, presentation mode {}",
++      "{}, presentation mode {}, exclusive fullscreen {}",
+       swapchain_create_info.imageExtent.width, swapchain_create_info.imageExtent.height,
+       uint32_t(swapchain_create_info.imageFormat), uint32_t(swapchain_create_info.imageColorSpace),
+-      uint32_t(swapchain_create_info.presentMode));
++      uint32_t(swapchain_create_info.presentMode),
++      swapchain_create_info.pNext ? (REXCVAR_GET(fullscreen_exclusive) ? "driver default"
++                                                                       : "disallowed")
++                                  : "driver default (no VK_EXT_full_screen_exclusive)");
+ 
+   present_queue_family_out = queue_family_index_present;
+   image_format_out = swapchain_create_info.imageFormat;
+diff --git a/src/ui/window.cpp b/src/ui/window.cpp
+index 7795c1e..895ac5c 100644
+--- a/src/ui/window.cpp
++++ b/src/ui/window.cpp
+@@ -13,6 +13,7 @@
+ #include <iterator>
+ 
+ #include <rex/assert.h>
++#include <rex/audio/audio_driver.h>
+ #include <rex/cvar.h>
+ #include <rex/graphics/video_mode_util.h>
+ #include <rex/logging.h>
+@@ -39,6 +40,11 @@ REXCVAR_DEFINE_BOOL(fullscreen_exclusive, false, "UI/Window",
+                     "Switch the display mode in fullscreen instead of going "
+                     "borderless at the desktop mode");
+ 
++REXCVAR_DEFINE_BOOL(pause_on_focus_loss, false, "UI/Window",
++                    "Mute the game while its window is not focused (it keeps "
++                    "running and drawing either way; the pad is always ignored "
++                    "while unfocused)");
++
+ REXCVAR_DEFINE_INT32(monitor, 0, "UI/Window",
+                      "Monitor index to display on (0 = default, 1 = primary, 2 = "
+                      "second monitor, etc.)")
+@@ -625,6 +631,8 @@ void Window::OnFocusUpdate(bool new_has_focus, WindowDestructionReceiver& destru
+     return;
+   }
+   has_focus_ = new_has_focus;
++  rex::audio::g_audio_muted.store(!has_focus_ && REXCVAR_GET(pause_on_focus_loss),
++                                  std::memory_order_relaxed);
+   UISetupEvent e(this);
+   if (has_focus_) {
+     SendEventToListeners([&e](auto listener) { listener->OnGotFocus(e); }, destruction_receiver);

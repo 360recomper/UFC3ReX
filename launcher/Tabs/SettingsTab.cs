@@ -29,7 +29,8 @@ public class SettingsTab : ILauncherTab
         backend.Items.AddRange(new object[] { "Direct3D 12 (default)", "Vulkan" });
         backend.SelectedIndexChanged += (_, _) => { if (!loading) Write(t => t.SetStr("gpu_backend", backend.SelectedIndex == 1 ? "vulkan" : "d3d12")); };
         col.Controls.Add(Row("Graphics backend", backend));
-        col.Controls.Add(Check("fullscreen", "Fullscreen (borderless)", false, "Also F11 in game."));
+        col.Controls.Add(Check("fullscreen", "Fullscreen (borderless)", true, "Also F11 in game. Alt-tab is instant: the picture stays while another window has focus."));
+        col.Controls.Add(Check("pause_on_focus_loss", "Mute while in the background", false, "Sound stops while another window has focus. The game keeps running either way; the controller is ignored until you come back."));
         col.Controls.Add(Check("ufc3_no_bloom", "Bloom off", false, "Removes the glow around bright areas."));
         col.Controls.Add(Check("ufc3_no_dof", "Depth of field off", false, "Removes the background blur."));
         col.Controls.Add(Check("ufc3_cutscene_60", "60 fps walkouts, intros and replays", false, "The game runs these at 30 fps. Experimental."));

@@ -22,6 +22,7 @@ for Xbox 360 as a disc image (`.iso`). DLC is optional and also comes from your 
 - Optional cheats: unlock everything, free unlock points (off by default)
 - Optional per-fighter walkout music from your own audio files
 - Optional DLSS 5 add-on (NVIDIA RTX)
+- Alt-tab and focus switches are instant (no black screen from exclusive fullscreen)
 
 ## Install
 

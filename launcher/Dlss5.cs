@@ -108,6 +108,10 @@ public static class Dlss5
         feed.Set("", "cast_mode", "1");
         // F10 only when the live panel is switched on; otherwise F24 (135, on no keyboard), so nothing opens it.
         feed.Set("", "cast_key", c.Dlss5LivePanel ? "121" : "135");
+        // The host's own window is only needed for the live panel. With it (host_window=0) the host's D3D12 device hung
+        // (DEVICE_HUNG during a present) after 1-15 min, idle or not, and DLSS 5 stayed off for the rest of the session;
+        // without it (2) 25 + 36 min soaks ran clean. The DLSS 5 look is the same either way.
+        feed.Set("", "host_window", c.Dlss5LivePanel ? "0" : "2");
         feed.Save();
         Dlss5Look.BackupDefault();
 
