@@ -25,6 +25,8 @@ for Xbox 360 as a disc image (`.iso`). DLC is optional and also comes from your 
 - Alt-tab and focus switches are instant (no black screen from exclusive fullscreen)
 - Blood stays where it lands on the mat at higher render scales
 - Career mode opponents and referees render properly (no black or invisible fighters)
+- Career mode playable start to finish: no crash at the end of the first fight or at the first UFC main-card fight
+- Created fighters: correct skin, portraits, magazine covers and walkout shirts
 
 ## Install
 

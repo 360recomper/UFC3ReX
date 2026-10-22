@@ -13,6 +13,7 @@
 0x827446B8 = { name = "sub_827446B8" }
 0x8300F720 = { name = "sub_8300F720" }
 0x83008838 = { name = "sub_83008838" }
+0x82E271F8 = { name = "sub_82E271F8" }  # career: first UFC fight (Rogan intro), lr 822200E4
 # Statically discovered indirect-call targets (tools\find_indirect_targets.py):
 # leaf/thunk functions after a terminator, referenced from vtables or lis/addi.
 0x82220CA8 = { name = "sub_82220CA8" }  # data ref @82000B64, owner 82220C98

@@ -3,7 +3,7 @@ namespace UFC3Launcher;
 /// <summary>Release version. Keep in step with Version in UFC3Launcher.csproj.</summary>
 public static class AppVersion
 {
-    public const string Launcher = "1.0.4";
+    public const string Launcher = "1.0.5";
 
     /// <summary>version.txt next to the launcher: written by the updater (it may keep a newer launcher than the release
     /// it installed). Without it the install is the launcher's own release.</summary>

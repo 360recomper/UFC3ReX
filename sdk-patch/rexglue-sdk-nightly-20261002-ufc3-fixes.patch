@@ -92,8 +92,176 @@ index 48100be..980ff9e 100644
    std::unique_ptr<Entry> root_entry_;
    bool read_only_;
    bool allow_share_delete_;
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index da8e432..640ff80 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -12,6 +12,8 @@
+ #pragma once
+ 
+ #include <atomic>
++#include <chrono>
++#include <condition_variable>
+ #include <cstring>
+ #include <functional>
+ #include <memory>
+@@ -44,6 +46,9 @@ enum class ReadbackResolveMode {
+   kFast,
+   kSome,
+   kFull,
++  // Resolved ranges are hidden from the guest CPU and read back on its first
++  // access to them.
++  kOnDemand,
+ };
+ 
+ struct SwapState {
+@@ -229,6 +234,44 @@ class CommandProcessor {
+   ReadbackResolveMode GetReadbackResolveMode(bool legacy_readback_resolve_enabled) const;
+   // Shared memexport readback enable state with backend legacy-flag override support.
+   bool IsReadbackMemexportEnabled(bool legacy_backend_flag) const;
++  // Copies guest physical memory for a memexport range at draw time (host
++  // no-access pages read as zeros), for WriteMemexportReadbackToGuest.
++  void ReadMemexportGuestBytes(uint32_t physical_address, uint32_t size, uint8_t* out) const;
++  // Copies memexport readback data into guest physical memory: only the dwords
++  // that differ from guest_before (guest memory at draw time), or everything
++  // without it, whatever the guest page state, as the GPU ignores it; host
++  // pages the guest made read-only get write access for the copy instead of
++  // faulting.
++  void WriteMemexportReadbackToGuest(uint32_t physical_address, const uint8_t* source,
++                                     const uint8_t* guest_before, uint32_t size);
++  // Counts one memexport readback started at start (timing and bytes in the log).
++  void NoteMemexportReadback(std::chrono::steady_clock::time_point start, uint32_t declared_size);
++
++  // On-demand resolve readback (readback_resolve=ondemand): after a resolve
++  // wrote a range, the guest views of it lose host access, and the first CPU
++  // access to it has the command processor thread read just that resolve back
++  // (synchronously, through the physical view) before the access goes on. No
++  // stall for resolves the CPU never touches.
++  // Called by the backends on the command processor thread after a resolve.
++  void TrackOnDemandResolve(uint32_t address, uint32_t length, bool scaled);
++  // Backend: copies the current GPU data of the range (downscaled from the
++  // scaled resolve buffer if scaled, in 32x32 tiles of 1 << pixel_size_log2
++  // bytes per pixel) and awaits it. Returns the data, valid until the next
++  // call, or nullptr.
++  virtual const uint8_t* ReadBackGpuRange(uint32_t address, uint32_t length,
++                                          uint32_t pixel_size_log2, bool scaled) {
++    return nullptr;
++  }
++  // Serves the on-demand readbacks faulting threads wait for. Command
++  // processor thread only, between packets.
++  void ServiceOnDemandReadbacks() {
++    if (ondemand_request_pending_.load(std::memory_order_acquire)) {
++      ServiceOnDemandReadbackRequests();
++    }
++  }
++
++  // Guest memory of the current draw's memexport ranges at draw time.
++  std::vector<uint8_t> memexport_guest_before_;
+ 
+   memory::Memory* memory_ = nullptr;
+   system::KernelState* kernel_state_ = nullptr;
+@@ -278,6 +321,73 @@ class CommandProcessor {
+   const char* legacy_readback_memexport_cvar_name_ = nullptr;
+ 
+  private:
++  struct MemexportReadbackStats {
++    uint64_t calls = 0;
++    uint64_t declared_bytes = 0;
++    uint64_t written_bytes = 0;
++    double ms = 0.0;
++    double max_ms = 0.0;
++  };
++  MemexportReadbackStats memexport_readback_stats_;
++  uint64_t memexport_readback_written_ = 0;
++  // Per-call details for memexport_readback_log: the first destination and
++  // how many written bytes are non-zero (an all-zero result is an empty or
++  // black texture).
++  uint32_t memexport_readback_first_address_ = UINT32_MAX;
++  uint64_t memexport_readback_nonzero_ = 0;
++
++  static bool OnDemandDataProviderThunk(void* context, uint32_t physical_address,
++                                        std::unique_lock<std::recursive_mutex> global_lock);
++  bool OnDemandDataProvider(uint32_t physical_address,
++                            std::unique_lock<std::recursive_mutex> global_lock);
++  void ServiceOnDemandReadbackRequests();
++  // Reads back the tracked resolves on the pages of the physical addresses
++  // (not their neighbours), contiguous ones in one copy.
++  void ReadBackOnDemand(const std::vector<uint32_t>& physical_addresses);
++
++  struct OnDemandResolve {
++    uint32_t address;
++    uint32_t length;
++    uint32_t pixel_size_log2;
++    bool scaled;
++  };
++  // Resolves still hidden from the CPU, oldest first. Command processor
++  // thread only.
++  std::vector<OnDemandResolve> ondemand_resolves_;
++  // Requests from faulting threads.
++  std::mutex ondemand_mutex_;
++  std::condition_variable ondemand_served_cv_;
++  std::vector<uint32_t> ondemand_requests_;
++  uint64_t ondemand_requested_ = 0;
++  uint64_t ondemand_served_ = 0;
++  std::atomic<bool> ondemand_request_pending_{false};
++  struct OnDemandReadbackStats {
++    uint64_t readbacks = 0;
++    uint64_t bytes = 0;
++    double ms = 0.0;
++    double max_ms = 0.0;
++    // Serves: one per ReadBackOnDemand (all requests queued at that time).
++    uint64_t serves = 0;
++    double serve_ms = 0.0;
++    double max_serve_ms = 0.0;
++  };
++  // Command processor thread only.
++  OnDemandReadbackStats ondemand_stats_;
++  // How long faulting threads were stopped, fault to resume. Under
++  // ondemand_mutex_.
++  struct OnDemandWaitStats {
++    uint64_t waits = 0;
++    double ms = 0.0;
++    double max_ms = 0.0;
++  };
++  OnDemandWaitStats ondemand_wait_stats_;
++  // Log line budgets (provider entries, skipped readbacks, serves).
++  std::atomic<uint32_t> ondemand_request_logs_{0};
++  std::atomic<uint32_t> ondemand_skip_logs_{0};
++  uint32_t ondemand_serve_logs_ = 0;
++  // ondemand_resolves_ size that triggers the sweep for reallocated pages.
++  size_t ondemand_sweep_size_ = 1024;
++
+   reg::DC_LUT_30_COLOR gamma_ramp_256_entry_table_[256] = {};
+   reg::DC_LUT_PWL_DATA gamma_ramp_pwl_rgb_[128][3] = {};
+   uint32_t gamma_ramp_rw_component_ = 0;
+diff --git a/include/rex/graphics/d3d12/command_processor.h b/include/rex/graphics/d3d12/command_processor.h
+index 96d362b..171a09b 100644
+--- a/include/rex/graphics/d3d12/command_processor.h
++++ b/include/rex/graphics/d3d12/command_processor.h
+@@ -368,6 +368,12 @@ class D3D12CommandProcessor : public CommandProcessor {
+   bool IssueCopy_ReadbackResolvePath();
+   bool IssueDraw_MemexportReadbackFullPath(uint32_t total_size);
+   bool IssueDraw_MemexportReadbackFastPath(uint32_t total_size);
++  const uint8_t* ReadBackGpuRange(uint32_t address, uint32_t length, uint32_t pixel_size_log2,
++                                  bool scaled) override;
++  // On-demand resolve readback destination, persistently mapped.
++  Microsoft::WRL::ComPtr<ID3D12Resource> ondemand_readback_buffer_;
++  uint32_t ondemand_readback_buffer_size_ = 0;
++  void* ondemand_readback_mapping_ = nullptr;
+ 
+   // Returns a buffer for reading GPU data back to the CPU. Assuming
+   // synchronizing immediately after use. Always in COPY_DEST state.
+@@ -378,6 +384,8 @@ class D3D12CommandProcessor : public CommandProcessor {
+     void* mapped_data[2] = {nullptr, nullptr};
+     uint64_t submission_written[2] = {0, 0};
+     uint32_t written_size[2] = {0, 0};
++    // Guest memory at the time of each slot's memexport draw.
++    std::vector<uint8_t> guest_before[2];
+     uint32_t current_index = 0;
+     uint64_t last_used_frame = 0;
+   };
 diff --git a/include/rex/graphics/flags.h b/include/rex/graphics/flags.h
-index 2cf24c4..3c19bde 100644
+index 2cf24c4..fb85c8c 100644
 --- a/include/rex/graphics/flags.h
 +++ b/include/rex/graphics/flags.h
 @@ -25,6 +25,9 @@ REXCVAR_DECLARE(int32_t, draw_resolution_scale_x);
@@ -106,6 +274,48 @@ index 2cf24c4..3c19bde 100644
  REXCVAR_DECLARE(std::string, readback_resolve);
  REXCVAR_DECLARE(bool, readback_resolve_half_pixel_offset);
  REXCVAR_DECLARE(bool, readback_memexport);
+@@ -53,6 +56,15 @@ REXCVAR_DECLARE(int32_t, texture_cache_memory_limit_soft);
+ REXCVAR_DECLARE(int32_t, texture_cache_memory_limit_hard);
+ REXCVAR_DECLARE(int32_t, texture_cache_memory_limit_soft_lifetime);
+ REXCVAR_DECLARE(bool, non_seamless_cube_map);
++REXCVAR_DECLARE(std::string, integer_texture_fetch);
++// Which fixed-point formats return raw integers from fetches with num_format = integer
++// (integer_texture_fetch, read once at startup).
++enum class IntegerTextureFetchMode { kOff, kK16, kAll };
++IntegerTextureFetchMode GetIntegerTextureFetchMode();
++
++// GPU Diagnostics
++REXCVAR_DECLARE(bool, resolve_empty_log);
++REXCVAR_DECLARE(bool, integer_fetch_log);
+ 
+ // GPU Primitive Processing
+ REXCVAR_DECLARE(bool, execute_unclipped_draw_vs_on_cpu);
+diff --git a/include/rex/graphics/pipeline/render_target/cache.h b/include/rex/graphics/pipeline/render_target/cache.h
+index 3bbd52e..5e49037 100644
+--- a/include/rex/graphics/pipeline/render_target/cache.h
++++ b/include/rex/graphics/pipeline/render_target/cache.h
+@@ -14,6 +14,7 @@
+ #include <cstdint>
+ #include <functional>
+ #include <map>
++#include <string>
+ #include <unordered_map>
+ #include <utility>
+ #include <vector>
+@@ -549,6 +550,13 @@ class RenderTargetCache {
+   void PixelShaderInterlockFullEdramBarrierPlaced();
+ 
+  private:
++  // For resolve_log_range.
++  static std::string GetKeyLogString(RenderTargetKey key);
++  // GetResolveCopyRectanglesToDump without the resolve_log_range line.
++  void GetResolveCopyRectanglesToDumpImpl(
++      uint32_t base, uint32_t row_length, uint32_t rows, uint32_t pitch,
++      std::vector<ResolveCopyDumpRectangle>& rectangles_out) const;
++
+   const RegisterFile& register_file_;
+   uint32_t draw_resolution_scale_x_;
+   uint32_t draw_resolution_scale_y_;
 diff --git a/include/rex/graphics/pipeline/shader/dxbc_translator.h b/include/rex/graphics/pipeline/shader/dxbc_translator.h
 index 3b0fd61..969d05f 100644
 --- a/include/rex/graphics/pipeline/shader/dxbc_translator.h
@@ -192,11 +402,114 @@ index 4d85a2b..83b9375 100644
    uint32_t host_gpu_memory_sparse_granularity_log2_ = UINT32_MAX;
    std::vector<uint64_t> host_gpu_memory_sparse_allocated_;
    uint32_t host_gpu_memory_sparse_allocations_ = 0;
+diff --git a/include/rex/graphics/util/draw.h b/include/rex/graphics/util/draw.h
+index 3da182d..6a12956 100644
+--- a/include/rex/graphics/util/draw.h
++++ b/include/rex/graphics/util/draw.h
+@@ -12,6 +12,7 @@
+ 
+ #include <cmath>
+ #include <cstdint>
++#include <string>
+ #include <utility>
+ #include <vector>
+ 
+@@ -287,6 +288,32 @@ struct Scissor {
+ };
+ void GetScissor(const RegisterFile& regs, Scissor& scissor_out, bool clamp_to_surface_pitch = true);
+ 
++// For one draw (create it right after the kCopy check, it restores the
++// registers when it goes out of scope): a window scissor TL_Y field holding a
++// negative 14-bit value (>= 8192, e.g. -320 written as 16064) means rows above
++// the render target base, which wrap to the end of the EDRAM. Host render
++// targets can't go above their base, and GetScissor reads the field unsigned
++// (height 0, draw dropped). draw_negative_origin (default off, never seen
++// firing) moves the draw down by a multiple of 32 rows and every render
++// target's EDRAM base up by the same tiles (as resolve_negative_origin=rebase
++// does for resolves), so the pixels land in the same EDRAM tiles.
++// draw_negative_origin_log logs such draws.
++class NegativeOriginDrawRebase {
++ public:
++  // The shaders are only used for the log and may be null.
++  NegativeOriginDrawRebase(RegisterFile& regs, const Shader* vertex_shader,
++                           const Shader* pixel_shader);
++  ~NegativeOriginDrawRebase();
++  NegativeOriginDrawRebase(const NegativeOriginDrawRebase&) = delete;
++  NegativeOriginDrawRebase& operator=(const NegativeOriginDrawRebase&) = delete;
++
++ private:
++  static constexpr uint32_t kSavedRegisterCount = 9;
++  RegisterFile& regs_;
++  bool applied_ = false;
++  uint32_t saved_[kSavedRegisterCount];
++};
++
+ // Returns the color component write mask for the draw command taking into
+ // account which color targets are written to by the pixel shader, as well as
+ // components that don't exist in the formats of the render targets (render
+@@ -330,6 +357,26 @@ struct MemExportRange {
+ void AddMemExportRanges(const RegisterFile& regs, const Shader& shader,
+                         std::vector<MemExportRange>& ranges_out);
+ 
++// integer_fetch_log: logs each texture fetch of the shader whose fetch constant has
++// num_format = integer, once per unique shader / slot / format / sign / size.
++void LogIntegerTextureFetches(const RegisterFile& regs, const Shader& shader);
++
++// resolve_texture_log: logs each texture fetch of the shader whose base lies
++// inside the texture of a resolve rebased by resolve_negative_origin, once per
++// shader / slot / base / size.
++void LogRebasedResolveTextureFetches(const RegisterFile& regs, const Shader& shader);
++
++// resolve_log_range: draws, ownership transfers and other context lines are
++// collected (unique, with counts) between resolves and printed only before a
++// resolve whose destination overlaps the range. Source lines (host render
++// targets the resolve reads) are printed right away if the last resolve was
++// in the range.
++bool IsResolveLogRangeEnabled();
++void NoteResolveLogRangeContext(std::string line);
++void NoteResolveLogRangeSource(const std::string& line);
++void NoteResolveLogRangeDraw(const RegisterFile& regs, const Shader* vertex_shader,
++                             const Shader* pixel_shader);
++
+ // To avoid passing values that the shader won't understand (even though
+ // Direct3D 9 shouldn't pass them anyway).
+ xenos::CopySampleSelect SanitizeCopySampleSelect(xenos::CopySampleSelect copy_sample_select,
 diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
-index 696ff48..6480a5c 100644
+index 696ff48..7adb122 100644
 --- a/include/rex/graphics/vulkan/command_processor.h
 +++ b/include/rex/graphics/vulkan/command_processor.h
-@@ -744,6 +744,9 @@ class VulkanCommandProcessor : public CommandProcessor {
+@@ -426,6 +426,9 @@ class VulkanCommandProcessor : public CommandProcessor {
+ 
+   void ClearTransientDescriptorPools();
+   bool IssueCopy_ReadbackResolvePath();
++  const uint8_t* ReadBackGpuRange(uint32_t address, uint32_t length, uint32_t pixel_size_log2,
++                                  bool scaled) override;
++  void DestroyOnDemandReadbackBuffer();
+   bool IssueDraw_MemexportReadbackFullPath(uint32_t total_size);
+   bool IssueDraw_MemexportReadbackFastPath(uint32_t total_size);
+ 
+@@ -450,6 +453,8 @@ class VulkanCommandProcessor : public CommandProcessor {
+     uint32_t sizes[2] = {0, 0};
+     uint64_t submission_written[2] = {0, 0};
+     uint32_t written_size[2] = {0, 0};
++    // Guest memory at the time of each slot's memexport draw.
++    std::vector<uint8_t> guest_before[2];
+     uint32_t current_index = 0;
+     uint64_t last_used_frame = 0;
+   };
+@@ -691,6 +696,11 @@ class VulkanCommandProcessor : public CommandProcessor {
+   VkBuffer resolve_downscale_buffer_ = VK_NULL_HANDLE;
+   VkDeviceMemory resolve_downscale_buffer_memory_ = VK_NULL_HANDLE;
+   uint32_t resolve_downscale_buffer_size_ = 0;
++  // On-demand resolve readback destination, persistently mapped.
++  VkBuffer ondemand_readback_buffer_ = VK_NULL_HANDLE;
++  VkDeviceMemory ondemand_readback_memory_ = VK_NULL_HANDLE;
++  void* ondemand_readback_mapping_ = nullptr;
++  uint32_t ondemand_readback_buffer_size_ = 0;
+ 
+   VkImage swap_fxaa_source_image_ = VK_NULL_HANDLE;
+   VkDeviceMemory swap_fxaa_source_image_memory_ = VK_NULL_HANDLE;
+@@ -744,6 +754,9 @@ class VulkanCommandProcessor : public CommandProcessor {
    struct VertexBufferState {
      uint32_t address = UINT32_MAX;
      uint32_t size = UINT32_MAX;
@@ -323,6 +636,23 @@ index 9672d33..ab8f4b3 100644
    std::unique_ptr<ui::ImmediateDrawer> immediate_drawer_;
    std::unique_ptr<ui::ImGuiDrawer> imgui_drawer_;
  
+diff --git a/include/rex/system/function_dispatcher.h b/include/rex/system/function_dispatcher.h
+index 916f3d6..32b2fbc 100644
+--- a/include/rex/system/function_dispatcher.h
++++ b/include/rex/system/function_dispatcher.h
+@@ -67,6 +67,12 @@ class FunctionDispatcher : public IModuleRegistrar {
+   uint64_t ExecuteInterrupt(ThreadState* thread_state, uint32_t address, uint64_t args[],
+                             size_t arg_count);
+ 
++  /**
++   * True while the calling thread runs a guest interrupt callback (under the
++   * global lock, which ExecuteInterrupt holds for the whole callback).
++   */
++  static bool IsInInterrupt();
++
+   /**
+    * Executes guest code on a thread already running guest code, then restores
+    * its full register state, matching the 360 kernel's trap-frame APC delivery.
 diff --git a/include/rex/system/info/file.h b/include/rex/system/info/file.h
 index ef0a9ad..3c133dc 100644
 --- a/include/rex/system/info/file.h
@@ -358,19 +688,93 @@ index 949d185..ec19afa 100644
    X_RESULT GetContentThumbnail(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data,
                                 std::vector<uint8_t>* buffer);
 diff --git a/include/rex/system/xmemory.h b/include/rex/system/xmemory.h
-index 0c39a42..7e62710 100644
+index 0c39a42..2b2dba7 100644
 --- a/include/rex/system/xmemory.h
 +++ b/include/rex/system/xmemory.h
-@@ -331,6 +331,9 @@ class PhysicalHeap : public BaseHeap {
+@@ -320,6 +320,17 @@ class PhysicalHeap : public BaseHeap {
+                         uint32_t virtual_address, uint32_t length, bool is_write,
+                         bool unwatch_exact_range, bool unprotect = true);
+ 
++  // Read watches: accessible pages of the range lose all host access in this
++  // view until DisableReadWatch, so the first guest read or write faults and
++  // the data provider can fill them through the host physical view first.
++  // The global critical region must be held. Returns whether any page in the
++  // range is read-watched afterwards.
++  bool EnableReadWatch(uint32_t physical_address, uint32_t length);
++  // Restores the normal protection (read-only where write-watched).
++  void DisableReadWatch(uint32_t physical_address, uint32_t length);
++  bool IsReadWatched(uint32_t virtual_address) const;
++  bool IsPhysicalPageReadWatched(uint32_t physical_address) const;
++
+   uint32_t GetPhysicalAddress(uint32_t address) const;
+ 
+  protected:
+@@ -331,6 +342,20 @@ class PhysicalHeap : public BaseHeap {
    // pages are large enough to skip reconciling but whose parent's are not.
    std::unique_lock<std::recursive_mutex> AcquireHostPageReconcileLock() const override;
  
 +  // Drops GPU-side copies of a range that has just been allocated.
 +  void InvalidateNewAllocation(uint32_t address, uint32_t size);
 +
++  // System pages of this view covering a physical range; false if none.
++  bool GetSystemPageRange(uint32_t physical_address, uint32_t length, uint32_t& first,
++                          uint32_t& last) const;
++  // Host access of a page without a read watch: the guest's, but read-only
++  // while write-watched.
++  rex::memory::PageAccess GetUnreadWatchedAccess(uint32_t system_page) const;
++  // Drops read watches of the pages, optionally restoring their protection.
++  // For guest operations that set the protection themselves afterwards.
++  void ClearReadWatches(uint32_t system_page_first, uint32_t system_page_last,
++                        bool restore_protection);
++
    VirtualHeap* parent_heap_;
  
    uint32_t system_page_size_;
+@@ -340,6 +365,9 @@ class PhysicalHeap : public BaseHeap {
+     // Whether writing to each page should result trigger invalidation
+     // callbacks.
+     uint64_t notify_on_invalidation;
++    // Whether the page is hidden (no host access) until the data provider
++    // fills it.
++    uint64_t notify_on_read;
+   };
+   // Protected by global_critical_region. Flags for each 64 system pages,
+   // interleaved as blocks, so bit scan can be used to quickly extract ranges.
+@@ -479,8 +507,23 @@ class Memory {
+   //
+   // - Data providers:
+   //
+-  // TODO(Triang3l): Implement data providers - more complicated because they
+-  // will need to be able to release the global lock.
++  // One provider (the GPU): read-watched pages have no host access in the
++  // guest views, and the first guest access to one calls the provider with the
++  // global lock (held once). The provider may release the lock, must write the
++  // data through the host physical view and DisablePhysicalMemoryReadWatch the
++  // pages, and returns true to retry the access.
++  typedef bool (*PhysicalMemoryDataProvider)(
++      void* context, uint32_t physical_address,
++      std::unique_lock<std::recursive_mutex> global_lock_locked_once);
++  void SetPhysicalMemoryDataProvider(PhysicalMemoryDataProvider provider, void* context);
++  // Both take the global lock. Enable returns whether any page is read-watched.
++  bool EnablePhysicalMemoryReadWatch(uint32_t physical_address, uint32_t length);
++  void DisablePhysicalMemoryReadWatch(uint32_t physical_address, uint32_t length);
++  // The global lock must be held.
++  bool IsPhysicalMemoryReadWatched(uint32_t physical_address) const;
++  // For host code about to read guest memory through a virtual view without
++  // fault handling (file writes): calls the provider for watched pages.
++  void ProvidePhysicalMemoryData(uint32_t virtual_address, uint32_t length);
+ 
+   // Returns start and length of the smallest physical memory region surrounding
+   // the watched region that can be safely unwatched, if it doesn't matter,
+@@ -624,6 +667,8 @@ class Memory {
+   rex::thread::global_critical_region global_critical_region_;
+   std::vector<std::pair<PhysicalMemoryInvalidationCallback, void*>*>
+       physical_memory_invalidation_callbacks_;
++  PhysicalMemoryDataProvider physical_memory_data_provider_ = nullptr;
++  void* physical_memory_data_provider_context_ = nullptr;
+ };
+ 
+ }  // namespace rex::memory
 diff --git a/include/rex/ui/imgui_dialog.h b/include/rex/ui/imgui_dialog.h
 index a7ab6b3..de55ece 100644
 --- a/include/rex/ui/imgui_dialog.h
@@ -793,6 +1197,118 @@ index 228728d..63d98dc 100644
    if (content.empty()) {
      REXLOG_DEBUG("SaveConfig: no modified flags to save");
      return;
+diff --git a/src/core/exception_handler_win.cpp b/src/core/exception_handler_win.cpp
+index 4a9b1ee..c23c152 100644
+--- a/src/core/exception_handler_win.cpp
++++ b/src/core/exception_handler_win.cpp
+@@ -15,9 +15,20 @@
+ 
+ #include "platform_win.h"
+ 
++#include <dbghelp.h>
++
++#include <atomic>
++#include <cwchar>
++#include <filesystem>
++#include <string>
++
+ #include <rex/assert.h>
++#include <rex/cvar.h>
++#include <rex/logging.h>
+ #include <rex/math.h>
+ 
++REXCVAR_DECLARE(std::string, log_file);
++
+ namespace rex::arch {
+ 
+ // Handle of the added VectoredExceptionHandler.
+@@ -101,9 +112,86 @@ LONG CALLBACK ExceptionHandlerCallback(PEXCEPTION_POINTERS ex_info) {
+   return EXCEPTION_CONTINUE_SEARCH;
+ }
+ 
++LPTOP_LEVEL_EXCEPTION_FILTER previous_unhandled_filter_ = nullptr;
++
++// Last chance for a crash nothing handled: writes a minidump next to the log
++// and logs where it is, so an exit to the desktop with no WER record leaves a
++// trace. Stack overflows and fail-fast exits can still bypass it.
++LONG WINAPI UnhandledExceptionFilterCallback(PEXCEPTION_POINTERS ex_info) {
++  static std::atomic<bool> entered{false};
++  if (entered.exchange(true)) {
++    return EXCEPTION_CONTINUE_SEARCH;
++  }
++  const EXCEPTION_RECORD* record = ex_info->ExceptionRecord;
++
++  // The dump first: logging can fail in a broken process.
++  std::filesystem::path dump_path;
++  bool dumped = false;
++  {
++    std::error_code error;
++    std::filesystem::path dump_dir;
++    const std::string& log_path = REXCVAR_GET(log_file);
++    if (!log_path.empty()) {
++      dump_dir = std::filesystem::path(log_path).parent_path();
++    }
++    if (dump_dir.empty()) {
++      dump_dir = std::filesystem::current_path(error);
++    }
++    SYSTEMTIME time;
++    GetLocalTime(&time);
++    wchar_t dump_name[64];
++    std::swprintf(dump_name, rex::countof(dump_name), L"crash-%04u%02u%02u-%02u%02u%02u.dmp",
++                  time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond);
++    dump_path = dump_dir / dump_name;
++
++    using MiniDumpWriteDumpFunction =
++        BOOL(WINAPI*)(HANDLE, DWORD, HANDLE, MINIDUMP_TYPE, PMINIDUMP_EXCEPTION_INFORMATION,
++                      PMINIDUMP_USER_STREAM_INFORMATION, PMINIDUMP_CALLBACK_INFORMATION);
++    HMODULE dbghelp = LoadLibraryW(L"dbghelp.dll");
++    auto mini_dump_write_dump =
++        dbghelp ? reinterpret_cast<MiniDumpWriteDumpFunction>(
++                      GetProcAddress(dbghelp, "MiniDumpWriteDump"))
++                : nullptr;
++    if (mini_dump_write_dump) {
++      HANDLE file = CreateFileW(dump_path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
++                                FILE_ATTRIBUTE_NORMAL, nullptr);
++      if (file != INVALID_HANDLE_VALUE) {
++        MINIDUMP_EXCEPTION_INFORMATION exception_information;
++        exception_information.ThreadId = GetCurrentThreadId();
++        exception_information.ExceptionPointers = ex_info;
++        exception_information.ClientPointers = FALSE;
++        // Not the guest memory (gigabytes of reserved views).
++        dumped = mini_dump_write_dump(
++                     GetCurrentProcess(), GetCurrentProcessId(), file,
++                     MINIDUMP_TYPE(MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithDataSegs |
++                                   MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules),
++                     &exception_information, nullptr, nullptr) != FALSE;
++        CloseHandle(file);
++      }
++    }
++  }
++
++  REXLOG_ERROR(
++      "Unhandled exception {:08X} at {:016X} on thread {:X} (info {:X}, {:016X}); minidump {}: {}",
++      uint32_t(record->ExceptionCode), uint64_t(uintptr_t(record->ExceptionAddress)),
++      GetCurrentThreadId(), record->NumberParameters > 0 ? record->ExceptionInformation[0] : 0,
++      record->NumberParameters > 1 ? record->ExceptionInformation[1] : 0,
++      dumped ? "written" : "FAILED", dump_path.string());
++
++  if (previous_unhandled_filter_) {
++    return previous_unhandled_filter_(ex_info);
++  }
++  return EXCEPTION_CONTINUE_SEARCH;
++}
++
+ void ExceptionHandler::Install(Handler fn, void* data) {
+   if (!veh_handle_) {
+     veh_handle_ = AddVectoredExceptionHandler(1, ExceptionHandlerCallback);
++    static bool unhandled_filter_installed = false;
++    if (!unhandled_filter_installed) {
++      unhandled_filter_installed = true;
++      previous_unhandled_filter_ = SetUnhandledExceptionFilter(UnhandledExceptionFilterCallback);
++    }
+ 
+     if (IsDebuggerPresent()) {
+       // TODO(benvanik): do we need a continue handler if a debugger is
 diff --git a/src/core/filesystem_win.cpp b/src/core/filesystem_win.cpp
 index c5a2c5d..7c19a61 100644
 --- a/src/core/filesystem_win.cpp
@@ -959,6 +1475,1018 @@ index 682b23d..bfa4d79 100644
          if (!std::filesystem::exists(file_path)) {
            entry->Delete();
            entry = nullptr;
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index a744375..f0bba61 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -31,9 +31,12 @@
+ #include <rex/math.h>
+ #include <rex/memory.h>
+ #include <rex/memory/ring_buffer.h>
++#include <rex/memory/utils.h>
+ #include <rex/stream.h>
++#include <rex/system/function_dispatcher.h>
+ #include <rex/system/kernel_state.h>
+ #include <rex/system/user_module.h>
++#include <rex/thread/mutex.h>
+ 
+ REXCVAR_DEFINE_BOOL(vsync, true, "GPU", "Enable vertical sync");
+ 
+@@ -45,13 +48,23 @@ REXCVAR_DEFINE_BOOL(clear_memory_page_state, true, "GPU",
+ REXCVAR_DEFINE_BOOL(occlusion_query_enable, true, "GPU", "Enable host occlusion query handling")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+-REXCVAR_DEFINE_STRING(readback_resolve, "none", "GPU",
++// On demand by default: UFC 3 builds its created-fighter pictures (portraits,
++// cards, the post-fight shirt) on the CPU from resolves, and without readback
++// the CPU reads stale memory there; full readback fixes them but stalls on
++// every resolve.
++REXCVAR_DEFINE_STRING(readback_resolve, "ondemand", "GPU",
+                       "Controls CPU readback of render-to-texture resolve results.\n"
+-                      " none: Disable readback (default)\n"
++                      " none: Disable readback\n"
+                       " fast: Read previous frame (delayed, copy every frame)\n"
+                       " some: Read previous frame (delayed, copy on cache miss)\n"
+-                      " full: Immediate sync readback (accurate but stalls)")
+-    .allowed({"none", "fast", "some", "full"})
++                      " full: Immediate sync readback (accurate but stalls)\n"
++                      " ondemand: Sync readback of a resolve when the CPU first touches it "
++                      "(default)")
++    .allowed({"none", "fast", "some", "full", "ondemand"})
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++REXCVAR_DEFINE_BOOL(readback_resolve_ondemand_log, false, "GPU",
++                    "Log every on-demand resolve readback (the first 32 are always logged)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+ REXCVAR_DEFINE_BOOL(readback_resolve_half_pixel_offset, false, "GPU",
+@@ -64,9 +77,17 @@ REXCVAR_DEFINE_BOOL(readback_memexport, true, "GPU",
+                     "coherency (can reduce correctness issues, but may add GPU/CPU sync cost)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+-REXCVAR_DEFINE_BOOL(readback_memexport_fast, true, "GPU",
++// Off by default: the fast path writes the previous same-range draw's result,
++// one draw late, which left UFC 3's created-fighter portrait and results-screen
++// model stale.
++REXCVAR_DEFINE_BOOL(readback_memexport_fast, false, "GPU",
+                     "Use fast double-buffered memexport readback when possible, with "
+-                    "automatic fallback to full synchronous readback")
++                    "automatic fallback to full synchronous readback (results arrive one "
++                    "draw late)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++REXCVAR_DEFINE_BOOL(memexport_readback_log, false, "GPU",
++                    "Log every memexport readback: address, declared and written bytes, time")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+ REXCVAR_DEFINE_INT32(query_occlusion_fake_sample_count, 1000, "GPU",
+@@ -96,9 +117,85 @@ ReadbackResolveMode ParseReadbackResolveMode(std::string_view value) {
+   if (value == "full") {
+     return ReadbackResolveMode::kFull;
+   }
++  if (value == "ondemand") {
++    return ReadbackResolveMode::kOnDemand;
++  }
+   return ReadbackResolveMode::kDisabled;
+ }
+ 
++// Writes to guest physical memory through the host physical view, giving
++// pages the guest made read-only write access just for the copy.
++void WriteGuestPhysical(uint8_t* dest, const uint8_t* source, uint32_t length) {
++  const uintptr_t host_page_mask = uintptr_t(rex::memory::page_size() - 1);
++  uint32_t offset = 0;
++  while (offset < length) {
++    uint8_t* const run_dest = dest + offset;
++    rex::memory::PageAccess access;
++    size_t region_length;
++    if (!rex::memory::QueryProtect(run_dest, region_length, access)) {
++      return;
++    }
++    const uint32_t run_length = uint32_t(
++        std::min(uint64_t(region_length - (reinterpret_cast<uintptr_t>(run_dest) & host_page_mask)),
++                 uint64_t(length - offset)));
++    if (access == rex::memory::PageAccess::kReadWrite ||
++        access == rex::memory::PageAccess::kExecuteReadWrite) {
++      std::memcpy(run_dest, source + offset, run_length);
++    } else {
++      rex::memory::PageAccess old_access;
++      if (rex::memory::Protect(run_dest, run_length, rex::memory::PageAccess::kReadWrite,
++                               &old_access)) {
++        std::memcpy(run_dest, source + offset, run_length);
++        rex::memory::Protect(run_dest, run_length, old_access);
++      }
++    }
++    offset += run_length;
++  }
++}
++
++// Copies the dwords of source that differ from before (all of them without
++// before). Returns the bytes written; changed_end becomes the end offset of the
++// last write, relative to base_offset.
++uint32_t CopyChangedDwords(uint8_t* dest, const uint8_t* source, const uint8_t* before,
++                           uint32_t length, uint32_t base_offset, uint32_t& changed_end) {
++  if (!before) {
++    std::memcpy(dest, source, length);
++    if (length) {
++      changed_end = base_offset + length;
++    }
++    return length;
++  }
++  constexpr uint32_t kBlock = 64;
++  uint32_t written = 0;
++  uint32_t i = 0;
++  while (i < length) {
++    const uint32_t block_length = std::min(kBlock, length - i);
++    if (!std::memcmp(source + i, before + i, block_length)) {
++      i += block_length;
++      continue;
++    }
++    const uint32_t block_end = i + block_length;
++    for (; i + 4 <= block_end; i += 4) {
++      uint32_t source_dword, before_dword;
++      std::memcpy(&source_dword, source + i, 4);
++      std::memcpy(&before_dword, before + i, 4);
++      if (source_dword != before_dword) {
++        std::memcpy(dest + i, &source_dword, 4);
++        written += 4;
++        changed_end = base_offset + i + 4;
++      }
++    }
++    for (; i < block_end; ++i) {
++      if (source[i] != before[i]) {
++        dest[i] = source[i];
++        ++written;
++        changed_end = base_offset + i + 1;
++      }
++    }
++  }
++  return written;
++}
++
+ }  // namespace
+ 
+ CommandProcessor::CommandProcessor(GraphicsSystem* graphics_system,
+@@ -144,14 +241,19 @@ bool CommandProcessor::Initialize() {
+   worker_thread_->set_name("GPU Commands");
+   worker_thread_->Create();
+ 
++  memory_->SetPhysicalMemoryDataProvider(OnDemandDataProviderThunk, this);
++
+   return true;
+ }
+ 
+ void CommandProcessor::Shutdown() {
+   worker_running_ = false;
+   write_ptr_index_event_->Set();
++  ondemand_served_cv_.notify_all();
+   worker_thread_->Wait(0, 0, 0, nullptr);
+   worker_thread_.reset();
++  // Without a provider, faults on still-hidden pages just unhide them.
++  memory_->SetPhysicalMemoryDataProvider(nullptr, nullptr);
+ }
+ 
+ void CommandProcessor::InitializeShaderStorage(const std::filesystem::path& cache_root,
+@@ -189,6 +291,526 @@ bool CommandProcessor::IsReadbackMemexportEnabled(bool legacy_backend_flag) cons
+   return REXCVAR_GET(readback_memexport);
+ }
+ 
++void CommandProcessor::ReadMemexportGuestBytes(uint32_t physical_address, uint32_t size,
++                                               uint8_t* out) const {
++  constexpr uint64_t kPhysicalMemorySize = 0x20000000;
++  physical_address &= 0x1FFFFFFF;
++  const uint32_t length = uint32_t(
++      std::min(uint64_t(physical_address) + size, kPhysicalMemorySize) - physical_address);
++  std::memset(out + length, 0, size - length);
++  const uint8_t* const source = memory_->TranslatePhysical(physical_address);
++  const uintptr_t host_page_mask = uintptr_t(memory::page_size() - 1);
++  uint32_t offset = 0;
++  while (offset < length) {
++    const uint8_t* const run_source = source + offset;
++    memory::PageAccess access;
++    size_t region_length;
++    if (!memory::QueryProtect(const_cast<uint8_t*>(run_source), region_length, access)) {
++      std::memset(out + offset, 0, length - offset);
++      break;
++    }
++    const uint32_t run_length = uint32_t(std::min(
++        uint64_t(region_length - (reinterpret_cast<uintptr_t>(run_source) & host_page_mask)),
++        uint64_t(length - offset)));
++    if (access == memory::PageAccess::kNoAccess) {
++      std::memset(out + offset, 0, run_length);
++    } else {
++      std::memcpy(out + offset, run_source, run_length);
++    }
++    offset += run_length;
++  }
++}
++
++void CommandProcessor::NoteMemexportReadback(std::chrono::steady_clock::time_point start,
++                                             uint32_t declared_size) {
++  const double ms =
++      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
++  const uint64_t written = memexport_readback_written_;
++  memexport_readback_written_ = 0;
++  MemexportReadbackStats& stats = memexport_readback_stats_;
++  ++stats.calls;
++  stats.declared_bytes += declared_size;
++  stats.written_bytes += written;
++  stats.ms += ms;
++  stats.max_ms = std::max(stats.max_ms, ms);
++  if (REXCVAR_GET(memexport_readback_log)) {
++    REXGPU_INFO(
++        "Memexport readback {}: to {:08X}, {} bytes declared, {} written ({} non-zero), "
++        "{:.2f} ms",
++        stats.calls, memexport_readback_first_address_, declared_size, written,
++        memexport_readback_nonzero_, ms);
++  }
++  memexport_readback_first_address_ = UINT32_MAX;
++  memexport_readback_nonzero_ = 0;
++  if (!(stats.calls % 32)) {
++    REXGPU_INFO(
++        "Memexport readbacks: {} so far, {:.1f} MB declared, {:.1f} MB written, {:.0f} ms total, "
++        "slowest {:.1f} ms",
++        stats.calls, stats.declared_bytes / 1048576.0, stats.written_bytes / 1048576.0, stats.ms,
++        stats.max_ms);
++  }
++}
++
++void CommandProcessor::WriteMemexportReadbackToGuest(uint32_t physical_address,
++                                                     const uint8_t* source,
++                                                     const uint8_t* guest_before, uint32_t size) {
++  // A stream's declared size can be far larger than what the shader writes
++  // (UFC 3's texture compressor declares 24 MB for a 4 MB texture), and the
++  // rest of the range can hold live data the CPU changed since the draw: with
++  // guest_before (guest memory at draw time), only the dwords the shader
++  // changed are written. The guest page table can't tell which bytes the game
++  // uses (skipping the uncommitted tail turned created fighters' heads black),
++  // so free pages are written too, and only host faults are avoided - the
++  // physical view is committed read-write except where the guest committed
++  // pages read-only or no-access, and a write there would crash.
++  constexpr uint64_t kPhysicalMemorySize = 0x20000000;
++  physical_address &= 0x1FFFFFFF;
++  const uint64_t end = std::min(uint64_t(physical_address) + size, kPhysicalMemorySize);
++  const uint32_t length = uint32_t(end - physical_address);
++  const uint64_t clamped = uint64_t(size) - length;
++  uint8_t* const dest = memory_->TranslatePhysical(physical_address);
++
++  if (REXCVAR_GET(memexport_readback_log)) {
++    if (memexport_readback_first_address_ == UINT32_MAX) {
++      memexport_readback_first_address_ = physical_address;
++    }
++    memexport_readback_nonzero_ +=
++        uint64_t(std::count_if(source, source + length, [](uint8_t value) { return value != 0; }));
++  }
++
++  // The first 16 readbacks log their guest state.
++  static uint32_t diagnostics_left = 16;
++  const bool log = diagnostics_left != 0;
++  if (log) {
++    --diagnostics_left;
++  }
++
++  // Diagnostics while logging: the guest state of the range.
++  uint64_t guest_free = 0, guest_reserved = 0, guest_read_only = 0;
++  if (log) {
++    memory::BaseHeap* heap = memory_->GetPhysicalHeap();
++    const uint32_t page_mask = heap->page_size() - 1;
++    uint32_t address = physical_address;
++    while (address < end) {
++      memory::HeapAllocationInfo info;
++      if (!heap->QueryRegionInfo(address, &info) || !info.region_size) {
++        break;
++      }
++      const uint32_t run_length =
++          uint32_t(std::min(uint64_t(info.region_size - (address & page_mask)), end - address));
++      if (!(info.state & memory::kMemoryAllocationCommit)) {
++        (info.state & memory::kMemoryAllocationReserve ? guest_reserved : guest_free) += run_length;
++      } else if (!(info.protect &
++                   (memory::kMemoryProtectWrite | memory::kMemoryProtectWriteCombine))) {
++        guest_read_only += run_length;
++      }
++      address += run_length;
++    }
++  }
++
++  uint64_t written = 0, unprotected = 0, skipped = 0;
++  uint32_t changed_end = 0;
++  const uintptr_t host_page_mask = uintptr_t(memory::page_size() - 1);
++  uint32_t offset = 0;
++  while (offset < length) {
++    uint8_t* const run_dest = dest + offset;
++    const uintptr_t run_page = reinterpret_cast<uintptr_t>(run_dest) & ~host_page_mask;
++    memory::PageAccess access;
++    size_t region_length;
++    if (!memory::QueryProtect(run_dest, region_length, access)) {
++      skipped += length - offset;
++      break;
++    }
++    const uint32_t run_length =
++        uint32_t(std::min(uint64_t(region_length - (reinterpret_cast<uintptr_t>(run_dest) -
++                                                    run_page)),
++                          uint64_t(length - offset)));
++    const uint8_t* const run_before = guest_before ? guest_before + offset : nullptr;
++    if (access == memory::PageAccess::kReadWrite ||
++        access == memory::PageAccess::kExecuteReadWrite) {
++      written += CopyChangedDwords(run_dest, source + offset, run_before, run_length, offset,
++                                   changed_end);
++    } else if (!run_before || std::memcmp(source + offset, run_before, run_length)) {
++      // The guest page table syncs host access under the global lock.
++      auto global_lock = rex::thread::global_critical_region::AcquireDirect();
++      memory::PageAccess old_access;
++      if (memory::Protect(run_dest, run_length, memory::PageAccess::kReadWrite, &old_access)) {
++        written += CopyChangedDwords(run_dest, source + offset, run_before, run_length, offset,
++                                     changed_end);
++        memory::Protect(run_dest, run_length, old_access);
++        unprotected += run_length;
++      } else {
++        skipped += run_length;
++      }
++    }
++    offset += run_length;
++  }
++  memexport_readback_written_ += written;
++
++  if (log) {
++    REXGPU_WARN(
++        "Memexport readback to {:08X} ({} bytes declared): wrote {} changed bytes, up to +{}; "
++        "guest pages free {}, reserved {}, read-only {}; host pages unprotected for the copy "
++        "{}, skipped {}, past 512 MB {}",
++        physical_address, size, written, changed_end, guest_free, guest_reserved,
++        guest_read_only, unprotected, skipped, clamped);
++  }
++}
++
++void CommandProcessor::TrackOnDemandResolve(uint32_t address, uint32_t length, bool scaled) {
++  constexpr uint64_t kPhysicalMemorySize = 0x20000000;
++  address &= 0x1FFFFFFF;
++  length = uint32_t(std::min(uint64_t(address) + length, kPhysicalMemorySize) - address);
++  if (!length) {
++    return;
++  }
++  uint32_t pixel_size_log2 = 0;
++  if (scaled) {
++    // The downscale works on 32x32 tiles of the destination format.
++    reg::RB_COPY_DEST_INFO copy_dest_info = register_file_->Get<reg::RB_COPY_DEST_INFO>();
++    uint32_t bits_per_pixel =
++        FormatInfo::Get(uint32_t(copy_dest_info.copy_dest_format))->bits_per_pixel;
++    switch (bits_per_pixel) {
++      case 8:
++        pixel_size_log2 = 0;
++        break;
++      case 16:
++        pixel_size_log2 = 1;
++        break;
++      case 32:
++        pixel_size_log2 = 2;
++        break;
++      case 64:
++        pixel_size_log2 = 3;
++        break;
++      default: {
++        static bool logged = false;
++        if (!logged) {
++          logged = true;
++          REXGPU_WARN("On-demand resolve readback: can't downscale {} bpp resolves, not tracked",
++                      bits_per_pixel);
++        }
++        return;
++      }
++    }
++  }
++  // A readback reads the current data, so a resolve covering an older one
++  // replaces it.
++  ondemand_resolves_.erase(
++      std::remove_if(ondemand_resolves_.begin(), ondemand_resolves_.end(),
++                     [&](const OnDemandResolve& resolve) {
++                       return resolve.address >= address &&
++                              uint64_t(resolve.address) + resolve.length <=
++                                  uint64_t(address) + length;
++                     }),
++      ondemand_resolves_.end());
++  if (!memory_->EnablePhysicalMemoryReadWatch(address, length)) {
++    // Nothing the guest can access.
++    return;
++  }
++  ondemand_resolves_.push_back({address, length, pixel_size_log2, scaled});
++
++  // Drop resolves whose pages the guest reallocated or overwrote since. The
++  // sweep walks pages under the global lock, so if most resolves are still
++  // hidden, it waits until the list has doubled instead of running on every
++  // resolve.
++  if (ondemand_resolves_.size() > ondemand_sweep_size_) {
++    const uint32_t page_size = uint32_t(rex::memory::page_size());
++    auto global_lock = rex::thread::global_critical_region::AcquireDirect();
++    ondemand_resolves_.erase(
++        std::remove_if(ondemand_resolves_.begin(), ondemand_resolves_.end(),
++                       [&](const OnDemandResolve& resolve) {
++                         uint64_t end = uint64_t(resolve.address) + resolve.length;
++                         for (uint64_t page = resolve.address & ~(page_size - 1); page < end;
++                              page += page_size) {
++                           if (memory_->IsPhysicalMemoryReadWatched(uint32_t(page))) {
++                             return false;
++                           }
++                         }
++                         return true;
++                       }),
++        ondemand_resolves_.end());
++    ondemand_sweep_size_ = std::max(size_t(1024), ondemand_resolves_.size() * 2);
++  }
++}
++
++bool CommandProcessor::OnDemandDataProviderThunk(
++    void* context, uint32_t physical_address, std::unique_lock<std::recursive_mutex> global_lock) {
++  return static_cast<CommandProcessor*>(context)->OnDemandDataProvider(physical_address,
++                                                                       std::move(global_lock));
++}
++
++bool CommandProcessor::OnDemandDataProvider(uint32_t physical_address,
++                                            std::unique_lock<std::recursive_mutex> global_lock) {
++  const bool on_gpu_thread = system::XThread::IsInThread(worker_thread_.get());
++  const bool in_interrupt = runtime::FunctionDispatcher::IsInInterrupt();
++  const char* const thread_kind =
++      on_gpu_thread ? " (GPU thread)" : (in_interrupt ? " (interrupt)" : "");
++  // Logged before anything can go wrong, so a crash shows the last step.
++  if (ondemand_request_logs_.fetch_add(1, std::memory_order_relaxed) < 32 ||
++      REXCVAR_GET(readback_resolve_ondemand_log)) {
++    REXGPU_INFO("On-demand resolve readback request: {:08X} from thread {:X}{}", physical_address,
++                rex::thread::current_thread_id(), thread_kind);
++  }
++
++  // The GPU thread faults here from a guest interrupt callback in the middle
++  // of a packet, where it can't read back, and any interrupt holds the global
++  // lock (ExecuteInterrupt) that the GPU thread needs to serve a request, so
++  // waiting would deadlock. Such an access gets the page as it is, like
++  // readback_resolve=none; the resolves stay tracked for their other pages.
++  if (on_gpu_thread || in_interrupt) {
++    if (ondemand_skip_logs_.fetch_add(1, std::memory_order_relaxed) < 16) {
++      REXGPU_WARN("On-demand readback skipped ({}): {:08X} thread {:X}",
++                  on_gpu_thread ? "GPU thread" : "interrupt", physical_address,
++                  rex::thread::current_thread_id());
++    }
++    memory_->DisablePhysicalMemoryReadWatch(physical_address, 1);
++    return true;
++  }
++
++  // The command processor thread takes the global lock to unhide the pages.
++  if (global_lock.owns_lock()) {
++    global_lock.unlock();
++  }
++  uint64_t ticket;
++  {
++    std::lock_guard<std::mutex> lock(ondemand_mutex_);
++    ondemand_requests_.push_back(physical_address);
++    ticket = ++ondemand_requested_;
++    ondemand_request_pending_.store(true, std::memory_order_release);
++  }
++  write_ptr_index_event_->Set();
++  const auto wait_start = std::chrono::steady_clock::now();
++  std::unique_lock<std::mutex> lock(ondemand_mutex_);
++  while (ondemand_served_ < ticket) {
++    if (!worker_running_) {
++      lock.unlock();
++      memory_->DisablePhysicalMemoryReadWatch(physical_address, 1);
++      return true;
++    }
++    ondemand_served_cv_.wait_for(lock, std::chrono::milliseconds(100));
++    if (ondemand_served_ < ticket &&
++        std::chrono::steady_clock::now() - wait_start > std::chrono::seconds(5)) {
++      // A case F1 doesn't know (this thread still holding the global lock the
++      // GPU thread needs): give the page back as it is rather than freeze. The
++      // queued request is still served later, for the other pages.
++      lock.unlock();
++      REXGPU_WARN(
++          "On-demand resolve readback of {:08X}: thread {:X} gave up after waiting 5 s for the "
++          "GPU thread, page given back unread",
++          physical_address, rex::thread::current_thread_id());
++      memory_->DisablePhysicalMemoryReadWatch(physical_address, 1);
++      return true;
++    }
++  }
++  const double wait_ms =
++      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wait_start)
++          .count();
++  ++ondemand_wait_stats_.waits;
++  ondemand_wait_stats_.ms += wait_ms;
++  ondemand_wait_stats_.max_ms = std::max(ondemand_wait_stats_.max_ms, wait_ms);
++  return true;
++}
++
++void CommandProcessor::ServiceOnDemandReadbackRequests() {
++  std::vector<uint32_t> requests;
++  uint64_t requested;
++  {
++    std::lock_guard<std::mutex> lock(ondemand_mutex_);
++    requests.swap(ondemand_requests_);
++    requested = ondemand_requested_;
++    ondemand_request_pending_.store(false, std::memory_order_relaxed);
++  }
++  ReadBackOnDemand(requests);
++  {
++    std::lock_guard<std::mutex> lock(ondemand_mutex_);
++    ondemand_served_ = requested;
++  }
++  ondemand_served_cv_.notify_all();
++}
++
++void CommandProcessor::ReadBackOnDemand(const std::vector<uint32_t>& physical_addresses) {
++  const uint32_t page_size = uint32_t(rex::memory::page_size());
++  const uint32_t page_mask = ~(page_size - 1);
++
++  using PageRange = std::pair<uint32_t, uint32_t>;
++  // Page-aligned [start, end) of a range (ends at most at 512 MB).
++  auto page_range = [&](uint32_t address, uint32_t length) {
++    return PageRange(address & page_mask,
++                     uint32_t((uint64_t(address) + length + page_size - 1) & page_mask));
++  };
++  if (physical_addresses.empty()) {
++    return;
++  }
++  const auto serve_start = std::chrono::steady_clock::now();
++
++  std::vector<uint32_t> pages;
++  pages.reserve(physical_addresses.size());
++  for (uint32_t physical_address : physical_addresses) {
++    pages.push_back(physical_address & 0x1FFFFFFF & page_mask);
++  }
++  std::sort(pages.begin(), pages.end());
++  pages.erase(std::unique(pages.begin(), pages.end()), pages.end());
++
++  // Only the resolves on the requested pages. Their neighbours stay hidden
++  // until the CPU touches them too (reading all of a chain of overlapping
++  // resolves at once is what made saving and shirt changes hitch).
++  std::vector<OnDemandResolve> picked;
++  size_t kept = 0;
++  for (size_t i = 0; i < ondemand_resolves_.size(); ++i) {
++    const OnDemandResolve& resolve = ondemand_resolves_[i];
++    PageRange range = page_range(resolve.address, resolve.length);
++    auto page_it = std::lower_bound(pages.begin(), pages.end(), range.first);
++    if (page_it != pages.end() && *page_it < range.second) {
++      picked.push_back(resolve);
++    } else {
++      ondemand_resolves_[kept++] = resolve;
++    }
++  }
++  ondemand_resolves_.resize(kept);
++
++  // A readback copies the current GPU data, not a snapshot, so the order of
++  // overlapping resolves doesn't matter, and overlapping or touching ones are
++  // read in one copy (scaled ones only along whole 32x32 downscale tiles).
++  std::sort(picked.begin(), picked.end(),
++            [](const OnDemandResolve& a, const OnDemandResolve& b) {
++              if (a.scaled != b.scaled) {
++                return a.scaled < b.scaled;
++              }
++              if (a.pixel_size_log2 != b.pixel_size_log2) {
++                return a.pixel_size_log2 < b.pixel_size_log2;
++              }
++              return a.address < b.address;
++            });
++  std::vector<OnDemandResolve> resolves;
++  for (const OnDemandResolve& resolve : picked) {
++    if (!resolves.empty()) {
++      OnDemandResolve& run = resolves.back();
++      uint64_t run_end = uint64_t(run.address) + run.length;
++      uint32_t tile_mask = (uint32_t(1024) << resolve.pixel_size_log2) - 1;
++      if (run.scaled == resolve.scaled && run.pixel_size_log2 == resolve.pixel_size_log2 &&
++          resolve.address <= run_end &&
++          (!resolve.scaled || !((run.address | run.length | resolve.address | resolve.length) &
++                                tile_mask))) {
++        run.length = uint32_t(std::max(run_end, uint64_t(resolve.address) + resolve.length) -
++                              run.address);
++        continue;
++      }
++    }
++    resolves.push_back(resolve);
++  }
++
++  if (ondemand_serve_logs_ < 32 || REXCVAR_GET(readback_resolve_ondemand_log)) {
++    ++ondemand_serve_logs_;
++    REXGPU_INFO(
++        "On-demand resolve readback: serving {} requests (first {:08X}): {} resolves in {} "
++        "copies, {} still hidden",
++        physical_addresses.size(), physical_addresses[0],
++        picked.size(), resolves.size(), ondemand_resolves_.size());
++  }
++
++  for (const OnDemandResolve& resolve : resolves) {
++    const auto start = std::chrono::steady_clock::now();
++    const uint8_t* data = ReadBackGpuRange(resolve.address, resolve.length,
++                                           resolve.pixel_size_log2, resolve.scaled);
++    if (data) {
++      // Only pages still hidden: the guest may have reallocated the others
++      // or written them outside its views (file reads) since.
++      auto global_lock = rex::thread::global_critical_region::AcquireDirect();
++      uint32_t offset = 0;
++      while (offset < resolve.length) {
++        uint32_t address = resolve.address + offset;
++        uint32_t run_length =
++            std::min(page_size - (address & (page_size - 1)), resolve.length - offset);
++        if (memory_->IsPhysicalMemoryReadWatched(address)) {
++          WriteGuestPhysical(memory_->TranslatePhysical(address), data + offset, run_length);
++        }
++        offset += run_length;
++      }
++    }
++    const double ms =
++        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
++            .count();
++    OnDemandReadbackStats& stats = ondemand_stats_;
++    ++stats.readbacks;
++    stats.bytes += resolve.length;
++    stats.ms += ms;
++    stats.max_ms = std::max(stats.max_ms, ms);
++    if (!data) {
++      REXGPU_WARN("On-demand resolve readback {}: {:08X}, {} bytes{}: GPU readback failed",
++                  stats.readbacks, resolve.address, resolve.length,
++                  resolve.scaled ? ", scaled" : "");
++    } else if (stats.readbacks <= 32 || REXCVAR_GET(readback_resolve_ondemand_log)) {
++      REXGPU_INFO("On-demand resolve readback {}: {:08X}, {} bytes{}, {:.2f} ms", stats.readbacks,
++                  resolve.address, resolve.length, resolve.scaled ? ", scaled" : "", ms);
++    }
++    if (!(stats.readbacks % 64)) {
++      OnDemandWaitStats wait_stats;
++      {
++        std::lock_guard<std::mutex> lock(ondemand_mutex_);
++        wait_stats = ondemand_wait_stats_;
++      }
++      REXGPU_INFO(
++          "On-demand resolve readbacks: {} so far, {:.1f} MB, {:.0f} ms total, avg {:.2f} ms, "
++          "slowest {:.1f} ms; {} serves, avg {:.2f} ms, slowest {:.1f} ms; threads stopped {} "
++          "times, avg {:.2f} ms, slowest {:.1f} ms; {} resolves still hidden",
++          stats.readbacks, stats.bytes / 1048576.0, stats.ms, stats.ms / stats.readbacks,
++          stats.max_ms, stats.serves, stats.serves ? stats.serve_ms / stats.serves : 0.0,
++          stats.max_serve_ms, wait_stats.waits,
++          wait_stats.waits ? wait_stats.ms / wait_stats.waits : 0.0, wait_stats.max_ms,
++          ondemand_resolves_.size());
++    }
++  }
++
++  // Unhide the requested pages, and the pages of what was read back that no
++  // still hidden resolve shares (those get filled when it is read back).
++  std::vector<PageRange> hidden;
++  hidden.reserve(ondemand_resolves_.size());
++  for (const OnDemandResolve& resolve : ondemand_resolves_) {
++    hidden.push_back(page_range(resolve.address, resolve.length));
++  }
++  std::sort(hidden.begin(), hidden.end());
++  size_t hidden_count = 0;
++  for (const PageRange& range : hidden) {
++    if (hidden_count && range.first <= hidden[hidden_count - 1].second) {
++      hidden[hidden_count - 1].second = std::max(hidden[hidden_count - 1].second, range.second);
++    } else {
++      hidden[hidden_count++] = range;
++    }
++  }
++  hidden.resize(hidden_count);
++  std::vector<PageRange> unhide;
++  for (uint32_t page : pages) {
++    unhide.emplace_back(page, page + page_size);
++  }
++  for (const OnDemandResolve& resolve : resolves) {
++    PageRange range = page_range(resolve.address, resolve.length);
++    uint32_t start = range.first;
++    auto hidden_it = std::upper_bound(
++        hidden.begin(), hidden.end(), start,
++        [](uint32_t address, const PageRange& hidden_range) { return address < hidden_range.second; });
++    for (; hidden_it != hidden.end() && hidden_it->first < range.second; ++hidden_it) {
++      if (hidden_it->first > start) {
++        unhide.emplace_back(start, hidden_it->first);
++      }
++      start = std::max(start, hidden_it->second);
++    }
++    if (start < range.second) {
++      unhide.emplace_back(start, range.second);
++    }
++  }
++  for (const PageRange& range : unhide) {
++    memory_->DisablePhysicalMemoryReadWatch(range.first, range.second - range.first);
++  }
++
++  const double serve_ms =
++      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - serve_start)
++          .count();
++  ++ondemand_stats_.serves;
++  ondemand_stats_.serve_ms += serve_ms;
++  ondemand_stats_.max_serve_ms = std::max(ondemand_stats_.max_serve_ms, serve_ms);
++}
++
+ void CommandProcessor::SetDesiredSwapPostEffect(SwapPostEffect swap_post_effect) {
+   if (swap_post_effect_desired_ == swap_post_effect) {
+     return;
+@@ -230,9 +852,12 @@ void CommandProcessor::WorkerThreadMain() {
+         loop_count++;
+         write_ptr_index = write_ptr_index_.load();
+       } while (worker_running_ && pending_fns_.empty() &&
++               !ondemand_request_pending_.load(std::memory_order_acquire) &&
+                (write_ptr_index == 0xBAADF00D || read_ptr_index_ == write_ptr_index));
+       ReturnFromWait();
+-      if (!worker_running_ || !pending_fns_.empty()) {
++      ServiceOnDemandReadbacks();
++      if (!worker_running_ || !pending_fns_.empty() || write_ptr_index == 0xBAADF00D ||
++          read_ptr_index_ == write_ptr_index) {
+         continue;
+       }
+     }
+@@ -620,6 +1245,7 @@ uint32_t CommandProcessor::ExecutePrimaryBuffer(uint32_t read_index, uint32_t wr
+   reader.set_read_offset(read_index * sizeof(uint32_t));
+   reader.set_write_offset(write_index * sizeof(uint32_t));
+   do {
++    ServiceOnDemandReadbacks();
+     if (!ExecutePacket(&reader)) {
+       // This probably should be fatal - but we're going to continue anyways.
+       REXGPU_ERROR("**** PRIMARY RINGBUFFER: Failed to execute packet.");
+@@ -640,6 +1266,7 @@ void CommandProcessor::ExecuteIndirectBuffer(uint32_t ptr, uint32_t count) {
+   memory::RingBuffer reader(memory_->TranslatePhysical(ptr), count * sizeof(uint32_t));
+   reader.set_write_offset(count * sizeof(uint32_t));
+   do {
++    ServiceOnDemandReadbacks();
+     if (!ExecutePacket(&reader)) {
+       // Return up a level if we encounter a bad packet.
+       REXGPU_ERROR("**** INDIRECT RINGBUFFER: Failed to execute packet.");
+@@ -991,6 +1618,8 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+ 
+   bool matched = false;
+   do {
++    // The thread that will satisfy the wait may be waiting for a readback.
++    ServiceOnDemandReadbacks();
+     uint32_t value = 0;
+     if (is_memory) {
+       value =
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index 19874a5..d89f57f 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -1672,6 +1672,12 @@ void D3D12CommandProcessor::ShutdownContext() {
+   scratch_buffer_size_ = 0;
+   resolve_downscale_buffer_size_ = 0;
+   resolve_downscale_buffer_.Reset();
++  if (ondemand_readback_buffer_) {
++    ondemand_readback_buffer_->Unmap(0, nullptr);
++    ondemand_readback_buffer_.Reset();
++  }
++  ondemand_readback_buffer_size_ = 0;
++  ondemand_readback_mapping_ = nullptr;
+ 
+   for (const std::pair<uint64_t, ID3D12Resource*>& resource_for_deletion :
+        resources_for_deletion_) {
+@@ -2284,6 +2290,12 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+     return IssueCopy();
+   }
+ 
++  // Patches the registers for this draw only (restored on return) if the
++  // scissor starts above the render target base.
++  draw_util::NegativeOriginDrawRebase negative_origin_rebase(
++      *register_file_, active_vertex_shader(), active_pixel_shader());
++  draw_util::NoteResolveLogRangeDraw(regs, active_vertex_shader(), active_pixel_shader());
++
+   bool surface_pitch_is_zero = regs.Get<reg::RB_SURFACE_INFO>().surface_pitch == 0;
+ 
+   // Vertex shader analysis.
+@@ -2327,6 +2339,13 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+   bool memexport_used_pixel = pixel_shader && (pixel_shader->memexport_eM_written() != 0);
+   bool memexport_used = memexport_used_vertex || memexport_used_pixel;
+ 
++  draw_util::LogIntegerTextureFetches(regs, *vertex_shader);
++  draw_util::LogRebasedResolveTextureFetches(regs, *vertex_shader);
++  if (pixel_shader) {
++    draw_util::LogIntegerTextureFetches(regs, *pixel_shader);
++    draw_util::LogRebasedResolveTextureFetches(regs, *pixel_shader);
++  }
++
+   if (!BeginSubmission(true)) {
+     return false;
+   }
+@@ -2718,11 +2737,13 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+         memexport_total_size += memexport_range.size_bytes;
+       }
+       if (memexport_total_size != 0) {
++        const auto readback_start = std::chrono::steady_clock::now();
+         if (REXCVAR_GET(readback_memexport_fast)) {
+           IssueDraw_MemexportReadbackFastPath(memexport_total_size);
+         } else {
+           IssueDraw_MemexportReadbackFullPath(memexport_total_size);
+         }
++        NoteMemexportReadback(readback_start, memexport_total_size);
+       }
+     }
+   }
+@@ -2743,8 +2764,11 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_s
+   shared_memory_->UseAsCopySource();
+   SubmitBarriers();
+   ID3D12Resource* shared_memory_buffer = shared_memory_->GetBuffer();
++  memexport_guest_before_.resize(total_size);
+   uint32_t readback_buffer_offset = 0;
+   for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
++    ReadMemexportGuestBytes(memexport_range.base_address_dwords << 2, memexport_range.size_bytes,
++                            memexport_guest_before_.data() + readback_buffer_offset);
+     deferred_command_list_.D3DCopyBufferRegion(
+         readback_buffer, readback_buffer_offset, shared_memory_buffer,
+         memexport_range.base_address_dwords << 2, memexport_range.size_bytes);
+@@ -2764,10 +2788,12 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_s
+   }
+ 
+   const uint8_t* readback_bytes = reinterpret_cast<const uint8_t*>(readback_mapping);
++  const uint8_t* guest_before = memexport_guest_before_.data();
+   for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
+-    std::memcpy(memory_->TranslatePhysical(memexport_range.base_address_dwords << 2),
+-                readback_bytes, memexport_range.size_bytes);
++    WriteMemexportReadbackToGuest(memexport_range.base_address_dwords << 2, readback_bytes,
++                                  guest_before, memexport_range.size_bytes);
+     readback_bytes += memexport_range.size_bytes;
++    guest_before += memexport_range.size_bytes;
+   }
+ 
+   D3D12_RANGE readback_write_range = {};
+@@ -2838,8 +2864,11 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_s
+   shared_memory_->UseAsCopySource();
+   SubmitBarriers();
+   ID3D12Resource* shared_memory_buffer = shared_memory_->GetBuffer();
++  readback.guest_before[write_index].resize(total_size);
+   uint32_t readback_offset = 0;
+   for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
++    ReadMemexportGuestBytes(memexport_range.base_address_dwords << 2, memexport_range.size_bytes,
++                            readback.guest_before[write_index].data() + readback_offset);
+     deferred_command_list_.D3DCopyBufferRegion(
+         readback.buffers[write_index], readback_offset, shared_memory_buffer,
+         memexport_range.base_address_dwords << 2, memexport_range.size_bytes);
+@@ -2861,10 +2890,16 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_s
+   }
+ 
+   const uint8_t* readback_bytes = static_cast<const uint8_t*>(readback.mapped_data[read_index]);
++  const uint8_t* guest_before = readback.guest_before[read_index].size() >= total_size
++                                    ? readback.guest_before[read_index].data()
++                                    : nullptr;
+   for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
+-    std::memcpy(memory_->TranslatePhysical(memexport_range.base_address_dwords << 2),
+-                readback_bytes, memexport_range.size_bytes);
++    WriteMemexportReadbackToGuest(memexport_range.base_address_dwords << 2, readback_bytes,
++                                  guest_before, memexport_range.size_bytes);
+     readback_bytes += memexport_range.size_bytes;
++    if (guest_before) {
++      guest_before += memexport_range.size_bytes;
++    }
+   }
+   readback.current_index = read_index;
+   return true;
+@@ -2878,14 +2913,155 @@ bool D3D12CommandProcessor::IssueCopy() {
+     return false;
+   }
+   ReadbackResolveMode readback_mode = GetReadbackResolveMode(REXCVAR_GET(d3d12_readback_resolve));
+-  if (readback_mode == ReadbackResolveMode::kDisabled) {
++  if (readback_mode == ReadbackResolveMode::kDisabled ||
++      readback_mode == ReadbackResolveMode::kOnDemand) {
+     uint32_t written_address, written_length;
+-    return render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_,
+-                                         written_address, written_length);
++    if (!render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_, written_address,
++                                       written_length)) {
++      return false;
++    }
++    if (readback_mode == ReadbackResolveMode::kOnDemand && written_length) {
++      TrackOnDemandResolve(written_address, written_length,
++                           texture_cache_->IsDrawResolutionScaled());
++    }
++    return true;
+   }
+   return IssueCopy_ReadbackResolvePath();
+ }
+ 
++const uint8_t* D3D12CommandProcessor::ReadBackGpuRange(uint32_t address, uint32_t length,
++                                                       uint32_t pixel_size_log2, bool scaled) {
++  if (!BeginSubmission(false)) {
++    return nullptr;
++  }
++
++  const ui::d3d12::D3D12Provider& provider = GetD3D12Provider();
++  ID3D12Device* device = provider.GetDevice();
++  uint32_t size = AlignReadbackBufferSize(length);
++  if (size > ondemand_readback_buffer_size_) {
++    // The previous readback was awaited, so the old buffer is idle.
++    if (ondemand_readback_buffer_) {
++      ondemand_readback_buffer_->Unmap(0, nullptr);
++      ondemand_readback_buffer_.Reset();
++      ondemand_readback_buffer_size_ = 0;
++      ondemand_readback_mapping_ = nullptr;
++    }
++    D3D12_RESOURCE_DESC buffer_desc;
++    ui::d3d12::util::FillBufferResourceDesc(buffer_desc, size, D3D12_RESOURCE_FLAG_NONE);
++    if (FAILED(device->CreateCommittedResource(
++            &ui::d3d12::util::kHeapPropertiesReadback, provider.GetHeapFlagCreateNotZeroed(),
++            &buffer_desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
++            IID_PPV_ARGS(&ondemand_readback_buffer_)))) {
++      REXGPU_ERROR("Failed to create a {} MB on-demand resolve readback buffer", size >> 20);
++      return nullptr;
++    }
++    D3D12_RANGE read_range = {0, size};
++    if (FAILED(ondemand_readback_buffer_->Map(0, &read_range, &ondemand_readback_mapping_))) {
++      REXGPU_ERROR("Failed to map the on-demand resolve readback buffer");
++      ondemand_readback_buffer_.Reset();
++      ondemand_readback_mapping_ = nullptr;
++      return nullptr;
++    }
++    ondemand_readback_buffer_size_ = size;
++  }
++
++  if (scaled) {
++    if (!resolve_downscale_pipeline_ || !resolve_downscale_root_signature_) {
++      return nullptr;
++    }
++    uint32_t tile_count = length >> (10 + pixel_size_log2);
++    if (!tile_count || !texture_cache_->MakeScaledResolveRangeCurrent(address, length)) {
++      return nullptr;
++    }
++    uint32_t scaled_length = uint32_t(texture_cache_->GetCurrentScaledResolveRangeLengthScaled());
++    uint64_t scaled_address = texture_cache_->GetCurrentScaledResolveRangeStartScaled();
++    ID3D12Resource* scaled_resolve_buffer = texture_cache_->GetCurrentScaledResolveBufferResource();
++    uint64_t scaled_buffer_base =
++        uint64_t(texture_cache_->GetCurrentScaledResolveBufferIndexPublic()) << 30;
++    if (!scaled_length || !scaled_resolve_buffer || scaled_address < scaled_buffer_base) {
++      return nullptr;
++    }
++
++    if (size > resolve_downscale_buffer_size_) {
++      D3D12_RESOURCE_DESC buffer_desc;
++      ui::d3d12::util::FillBufferResourceDesc(buffer_desc, size,
++                                              D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
++      ID3D12Resource* buffer = nullptr;
++      if (FAILED(device->CreateCommittedResource(
++              &ui::d3d12::util::kHeapPropertiesDefault, provider.GetHeapFlagCreateNotZeroed(),
++              &buffer_desc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
++              IID_PPV_ARGS(&buffer)))) {
++        REXGPU_ERROR("Failed to create a {} MB resolve downscale buffer", size >> 20);
++        return nullptr;
++      }
++      if (resolve_downscale_buffer_) {
++        resources_for_deletion_.emplace_back(GetCurrentSubmission(),
++                                             resolve_downscale_buffer_.Detach());
++      }
++      resolve_downscale_buffer_.Attach(buffer);
++      resolve_downscale_buffer_size_ = size;
++    }
++
++    ui::d3d12::util::DescriptorCpuGpuHandlePair downscale_descriptors[2];
++    if (!RequestOneUseSingleViewDescriptors(2, downscale_descriptors)) {
++      return nullptr;
++    }
++    ui::d3d12::util::CreateBufferRawSRV(
++        device, downscale_descriptors[0].first, scaled_resolve_buffer,
++        rex::align(scaled_length, uint32_t(D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT)),
++        scaled_address - scaled_buffer_base);
++    ui::d3d12::util::CreateBufferRawUAV(
++        device, downscale_descriptors[1].first, resolve_downscale_buffer_.Get(),
++        rex::align(length, uint32_t(D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT)), 0);
++
++    PushUAVBarrier(scaled_resolve_buffer);
++    texture_cache_->TransitionCurrentScaledResolveRange(
++        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++    SubmitBarriers();
++
++    SetExternalPipeline(resolve_downscale_pipeline_.Get());
++    deferred_command_list_.D3DSetComputeRootSignature(resolve_downscale_root_signature_.Get());
++    ResolveDownscaleConstants constants;
++    constants.scale_x = texture_cache_->draw_resolution_scale_x();
++    constants.scale_y = texture_cache_->draw_resolution_scale_y();
++    constants.pixel_size_log2 = pixel_size_log2;
++    constants.tile_count = tile_count;
++    constants.half_pixel_offset = (REXCVAR_GET(readback_resolve_half_pixel_offset) &&
++                                   (constants.scale_x > 1 || constants.scale_y > 1))
++                                      ? 1u
++                                      : 0u;
++    deferred_command_list_.D3DSetComputeRoot32BitConstants(
++        UINT(ResolveDownscaleRootParameter::kConstants), sizeof(constants) / sizeof(uint32_t),
++        &constants, 0);
++    deferred_command_list_.D3DSetComputeRootDescriptorTable(
++        UINT(ResolveDownscaleRootParameter::kSource), downscale_descriptors[0].second);
++    deferred_command_list_.D3DSetComputeRootDescriptorTable(
++        UINT(ResolveDownscaleRootParameter::kDestination), downscale_descriptors[1].second);
++    deferred_command_list_.D3DDispatch(tile_count, 1, 1);
++
++    PushUAVBarrier(resolve_downscale_buffer_.Get());
++    PushTransitionBarrier(resolve_downscale_buffer_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
++                          D3D12_RESOURCE_STATE_COPY_SOURCE);
++    SubmitBarriers();
++    deferred_command_list_.D3DCopyBufferRegion(ondemand_readback_buffer_.Get(), 0,
++                                               resolve_downscale_buffer_.Get(), 0, length);
++    PushTransitionBarrier(resolve_downscale_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE,
++                          D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++    texture_cache_->TransitionCurrentScaledResolveRange(D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++    SubmitBarriers();
++  } else {
++    shared_memory_->UseAsCopySource();
++    SubmitBarriers();
++    deferred_command_list_.D3DCopyBufferRegion(ondemand_readback_buffer_.Get(), 0,
++                                               shared_memory_->GetBuffer(), address, length);
++  }
++
++  if (!AwaitAllQueueOperationsCompletion()) {
++    return nullptr;
++  }
++  return static_cast<const uint8_t*>(ondemand_readback_mapping_);
++}
++
+ bool D3D12CommandProcessor::IssueCopy_ReadbackResolvePath() {
+   uint32_t written_address, written_length;
+   if (!render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_, written_address,
 diff --git a/src/graphics/d3d12/pipeline_cache.cpp b/src/graphics/d3d12/pipeline_cache.cpp
 index 8e6b854..9538c17 100644
 --- a/src/graphics/d3d12/pipeline_cache.cpp
@@ -975,7 +2503,7 @@ index 8e6b854..9538c17 100644
      using DepthStencilMode = DxbcShaderTranslator::Modification::DepthStencilMode;
      if (render_target_cache_.depth_float24_convert_in_pixel_shader() &&
 diff --git a/src/graphics/flags.cpp b/src/graphics/flags.cpp
-index e2983a4..7ebabb3 100644
+index e2983a4..c1444fc 100644
 --- a/src/graphics/flags.cpp
 +++ b/src/graphics/flags.cpp
 @@ -9,6 +9,11 @@
@@ -990,7 +2518,7 @@ index e2983a4..7ebabb3 100644
  #include <rex/graphics/flags.h>
  #include <rex/logging.h>
  #include <rex/ui/renderdoc_api.h>
-@@ -32,6 +37,52 @@ REXCVAR_DEFINE_BOOL(gpu_debug_markers, false, "GPU",
+@@ -32,6 +37,79 @@ REXCVAR_DEFINE_BOOL(gpu_debug_markers, false, "GPU",
                      "Insert debug markers into GPU command streams for tools "
                      "like PIX and RenderDoc. Automatically enabled when "
                      "RenderDoc is detected.");
@@ -1002,6 +2530,33 @@ index e2983a4..7ebabb3 100644
 +    "update data maps (GPU particle state, decal maps) by sampling their previous "
 +    "contents at the interpolated coordinate: at the host pixel center the sample may "
 +    "land in the neighboring guest texel, and the map then drifts a host texel per pass.");
++
++REXCVAR_DEFINE_STRING(integer_texture_fetch, "all", "GPU",
++                      "Fixed-point texture fetches with the integer number format return raw "
++                      "integers for: all (k_16*, k_8*, k_4_4_4_4), k16 (k_16* only) or off "
++                      "(always normalized, as before patch 0012). Applies to shaders translated "
++                      "after startup.")
++    .allowed({"all", "k16", "off"})
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++
++IntegerTextureFetchMode GetIntegerTextureFetchMode() {
++  static const IntegerTextureFetchMode mode = []() {
++    const std::string& value = REXCVAR_GET(integer_texture_fetch);
++    IntegerTextureFetchMode parsed = IntegerTextureFetchMode::kAll;
++    if (value == "off") {
++      parsed = IntegerTextureFetchMode::kOff;
++    } else if (value == "k16") {
++      parsed = IntegerTextureFetchMode::kK16;
++    } else if (value != "all") {
++      REXLOG_WARN("integer_texture_fetch: unknown value \"{}\", using all", value);
++    }
++    if (parsed != IntegerTextureFetchMode::kAll) {
++      REXLOG_INFO("Integer texture fetches: {}", value);
++    }
++    return parsed;
++  }();
++  return mode;
++}
 +
 +bool IsGuestPixelCenterPixelShader(uint64_t ucode_data_hash) {
 +  static const std::unordered_set<uint64_t> hashes = []() {
@@ -1043,6 +2598,99 @@ index e2983a4..7ebabb3 100644
  
  bool IsGpuDebugMarkersEnabled() {
    static bool cached = false;
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index 953c5fd..73b1e89 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -688,6 +688,24 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
+     uint32_t rt_bit_index = rt_base_index.second;
+     ChangeOwnership(rt_keys[rt_bit_index], 0, rt_lengths_tiles[i],
+                     interlock_barrier_only ? nullptr : &last_update_transfers_[rt_bit_index]);
++    if (draw_util::IsResolveLogRangeEnabled()) {
++      if (interlock_barrier_only) {
++        draw_util::NoteResolveLogRangeContext(
++            fmt::format("Ownership: {} tiles {}", GetKeyLogString(rt_keys[rt_bit_index]),
++                        rt_lengths_tiles[i]));
++      } else {
++        for (const Transfer& transfer : last_update_transfers_[rt_bit_index]) {
++          draw_util::NoteResolveLogRangeContext(fmt::format(
++              "Transfer: {} (length {} tiles) <- {} tiles [{}, {}){}",
++              GetKeyLogString(rt_keys[rt_bit_index]), rt_lengths_tiles[i],
++              GetKeyLogString(transfer.source->key()), transfer.start_tiles,
++              transfer.end_tiles,
++              transfer.host_depth_source
++                  ? " host depth " + GetKeyLogString(transfer.host_depth_source->key())
++                  : std::string()));
++        }
++      }
++    }
+   }
+ 
+   if (interlock_barrier_only) {
+@@ -836,9 +854,39 @@ void RenderTargetCache::GetHostDepthStoreRectangleInfo(
+   group_count_y_out = (transfer_rectangle.height_pixels * pixel_size_y) >> 3;
+ }
+ 
++std::string RenderTargetCache::GetKeyLogString(RenderTargetKey key) {
++  if (key.IsEmpty()) {
++    return "none";
++  }
++  return fmt::format("{} base {} pitch {} msaa {} format {}", key.is_depth ? "depth" : "color",
++                     uint32_t(key.base_tiles), uint32_t(key.pitch_tiles_at_32bpp),
++                     uint32_t(key.msaa_samples), uint32_t(key.resource_format));
++}
++
+ void RenderTargetCache::GetResolveCopyRectanglesToDump(
+     uint32_t base, uint32_t row_length, uint32_t rows, uint32_t pitch,
+     std::vector<ResolveCopyDumpRectangle>& rectangles_out) const {
++  GetResolveCopyRectanglesToDumpImpl(base, row_length, rows, pitch, rectangles_out);
++  if (!draw_util::IsResolveLogRangeEnabled()) {
++    return;
++  }
++  // Only shown for a resolve into the range.
++  std::string line =
++      fmt::format("dump base {} row length {} rows {} pitch {}:", base, row_length, rows, pitch);
++  for (const ResolveCopyDumpRectangle& rectangle : rectangles_out) {
++    line += fmt::format(" [{} rows {}+{} span {}..{}]",
++                        GetKeyLogString(rectangle.render_target->key()), rectangle.row_first,
++                        rectangle.rows, rectangle.row_first_start, rectangle.row_last_end);
++  }
++  if (rectangles_out.empty()) {
++    line += " no owner";
++  }
++  draw_util::NoteResolveLogRangeSource(line);
++}
++
++void RenderTargetCache::GetResolveCopyRectanglesToDumpImpl(
++    uint32_t base, uint32_t row_length, uint32_t rows, uint32_t pitch,
++    std::vector<ResolveCopyDumpRectangle>& rectangles_out) const {
+   rectangles_out.clear();
+   assert_true(row_length <= pitch);
+   row_length = std::min(row_length, pitch);
+@@ -1121,6 +1169,23 @@ bool RenderTargetCache::PrepareHostRenderTargetsResolveClear(
+     ChangeOwnership(color_render_target_key, color_clear_start_tiles_base_relative,
+                     color_clear_length_tiles, &color_transfers_out, &clear_rectangle);
+   }
++  if (draw_util::IsResolveLogRangeEnabled()) {
++    std::string line = fmt::format(
++        "clear depth {} +{} length {} color {} +{} length {} rect ({}, {}) {}x{}:",
++        GetKeyLogString(depth_render_target_key), depth_clear_start_tiles_base_relative,
++        depth_clear_length_tiles, GetKeyLogString(color_render_target_key),
++        color_clear_start_tiles_base_relative, color_clear_length_tiles, clear_rectangle.x_pixels,
++        clear_rectangle.y_pixels, clear_rectangle.width_pixels, clear_rectangle.height_pixels);
++    for (const Transfer& transfer : depth_transfers_out) {
++      line += fmt::format(" depth <- {} [{}, {})", GetKeyLogString(transfer.source->key()),
++                          transfer.start_tiles, transfer.end_tiles);
++    }
++    for (const Transfer& transfer : color_transfers_out) {
++      line += fmt::format(" color <- {} [{}, {})", GetKeyLogString(transfer.source->key()),
++                          transfer.start_tiles, transfer.end_tiles);
++    }
++    draw_util::NoteResolveLogRangeSource(line);
++  }
+   return true;
+ }
+ 
 diff --git a/src/graphics/pipeline/shader/dxbc_translator.cpp b/src/graphics/pipeline/shader/dxbc_translator.cpp
 index 2c31a0e..1f2aa90 100644
 --- a/src/graphics/pipeline/shader/dxbc_translator.cpp
@@ -1106,10 +2754,10 @@ index 2c31a0e..1f2aa90 100644
    // (PsParamGen). The negate modified in DXBC flips the sign bit, so it can be
    // used to write the flags.
 diff --git a/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp b/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp
-index 31de175..455a075 100644
+index 31de175..d90128a 100644
 --- a/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp
 +++ b/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp
-@@ -1963,6 +1963,52 @@ void DxbcShaderTranslator::ProcessTextureFetchInstruction(
+@@ -1963,6 +1963,59 @@ void DxbcShaderTranslator::ProcessTextureFetchInstruction(
               dxbc::Src::R(system_temp_result_), dxbc::Src::R(exp_adjust_temp, dxbc::Src::kXXXX));
      // Release exp_adjust_temp.
      PopSystemTemp();
@@ -1117,48 +2765,55 @@ index 31de175..455a075 100644
 +    // Integer number format (bit 0 of the fetch constant dword 3) on a fixed-point format: the
 +    // hardware returns the raw integer value instead of the normalized one. UFC 3 uses this for a
 +    // k_16 lookup table of tiled addresses in its GPU texture compressor.
-+    uint32_t integer_scale_temp = PushSystemTemp();
-+    // x = format, y = scale being built, z = format comparison result.
-+    a_.OpAnd(dxbc::Dest::R(integer_scale_temp, 0b0001),
-+             RequestTextureFetchConstantWord(tfetch_index, 1), dxbc::Src::LU(0x3F));
-+    a_.OpMov(dxbc::Dest::R(integer_scale_temp, 0b0010), dxbc::Src::LF(1.0f));
-+    auto select_scale_for_formats = [&](std::initializer_list<uint32_t> formats, float scale) {
-+      bool first = true;
-+      for (uint32_t format : formats) {
-+        if (first) {
-+          a_.OpIEq(dxbc::Dest::R(integer_scale_temp, 0b0100),
-+                   dxbc::Src::R(integer_scale_temp, dxbc::Src::kXXXX), dxbc::Src::LU(format));
-+          first = false;
-+        } else {
-+          uint32_t is_format_temp = PushSystemTemp();
-+          a_.OpIEq(dxbc::Dest::R(is_format_temp, 0b0001),
-+                   dxbc::Src::R(integer_scale_temp, dxbc::Src::kXXXX), dxbc::Src::LU(format));
-+          a_.OpOr(dxbc::Dest::R(integer_scale_temp, 0b0100),
-+                  dxbc::Src::R(integer_scale_temp, dxbc::Src::kZZZZ),
-+                  dxbc::Src::R(is_format_temp, dxbc::Src::kXXXX));
-+          // Release is_format_temp.
-+          PopSystemTemp();
++    // integer_texture_fetch: all formats below, k_16* only, or off.
++    IntegerTextureFetchMode integer_fetch_mode = GetIntegerTextureFetchMode();
++    if (integer_fetch_mode != IntegerTextureFetchMode::kOff) {
++      uint32_t integer_scale_temp = PushSystemTemp();
++      // x = format, y = scale being built, z = format comparison result.
++      a_.OpAnd(dxbc::Dest::R(integer_scale_temp, 0b0001),
++               RequestTextureFetchConstantWord(tfetch_index, 1), dxbc::Src::LU(0x3F));
++      a_.OpMov(dxbc::Dest::R(integer_scale_temp, 0b0010), dxbc::Src::LF(1.0f));
++      auto select_scale_for_formats = [&](std::initializer_list<uint32_t> formats, float scale) {
++        bool first = true;
++        for (uint32_t format : formats) {
++          if (first) {
++            a_.OpIEq(dxbc::Dest::R(integer_scale_temp, 0b0100),
++                     dxbc::Src::R(integer_scale_temp, dxbc::Src::kXXXX), dxbc::Src::LU(format));
++            first = false;
++          } else {
++            uint32_t is_format_temp = PushSystemTemp();
++            a_.OpIEq(dxbc::Dest::R(is_format_temp, 0b0001),
++                     dxbc::Src::R(integer_scale_temp, dxbc::Src::kXXXX), dxbc::Src::LU(format));
++            a_.OpOr(dxbc::Dest::R(integer_scale_temp, 0b0100),
++                    dxbc::Src::R(integer_scale_temp, dxbc::Src::kZZZZ),
++                    dxbc::Src::R(is_format_temp, dxbc::Src::kXXXX));
++            // Release is_format_temp.
++            PopSystemTemp();
++          }
 +        }
++        a_.OpMovC(dxbc::Dest::R(integer_scale_temp, 0b0010),
++                  dxbc::Src::R(integer_scale_temp, dxbc::Src::kZZZZ), dxbc::Src::LF(scale),
++                  dxbc::Src::R(integer_scale_temp, dxbc::Src::kYYYY));
++      };
++      // k_16, k_16_16, k_16_16_16_16.
++      select_scale_for_formats({24, 25, 26}, 65535.0f);
++      if (integer_fetch_mode == IntegerTextureFetchMode::kAll) {
++        // k_8, k_8_8_8_8, k_8_A, k_8_B, k_8_8, k_8_8_8_8_A.
++        select_scale_for_formats({2, 6, 8, 9, 10, 14}, 255.0f);
++        // k_4_4_4_4.
++        select_scale_for_formats({15}, 15.0f);
 +      }
++      a_.OpAnd(dxbc::Dest::R(integer_scale_temp, 0b0100),
++               RequestTextureFetchConstantWord(tfetch_index, 3), dxbc::Src::LU(1));
 +      a_.OpMovC(dxbc::Dest::R(integer_scale_temp, 0b0010),
-+                dxbc::Src::R(integer_scale_temp, dxbc::Src::kZZZZ), dxbc::Src::LF(scale),
-+                dxbc::Src::R(integer_scale_temp, dxbc::Src::kYYYY));
-+    };
-+    // k_16, k_16_16, k_16_16_16_16.
-+    select_scale_for_formats({24, 25, 26}, 65535.0f);
-+    // k_8, k_8_8_8_8, k_8_A, k_8_B, k_8_8, k_8_8_8_8_A.
-+    select_scale_for_formats({2, 6, 8, 9, 10, 14}, 255.0f);
-+    // k_4_4_4_4.
-+    select_scale_for_formats({15}, 15.0f);
-+    a_.OpAnd(dxbc::Dest::R(integer_scale_temp, 0b0100),
-+             RequestTextureFetchConstantWord(tfetch_index, 3), dxbc::Src::LU(1));
-+    a_.OpMovC(dxbc::Dest::R(integer_scale_temp, 0b0010),
-+              dxbc::Src::R(integer_scale_temp, dxbc::Src::kZZZZ),
-+              dxbc::Src::R(integer_scale_temp, dxbc::Src::kYYYY), dxbc::Src::LF(1.0f));
-+    a_.OpMul(dxbc::Dest::R(system_temp_result_, used_result_nonzero_components),
-+             dxbc::Src::R(system_temp_result_), dxbc::Src::R(integer_scale_temp, dxbc::Src::kYYYY));
-+    // Release integer_scale_temp.
-+    PopSystemTemp();
++                dxbc::Src::R(integer_scale_temp, dxbc::Src::kZZZZ),
++                dxbc::Src::R(integer_scale_temp, dxbc::Src::kYYYY), dxbc::Src::LF(1.0f));
++      a_.OpMul(dxbc::Dest::R(system_temp_result_, used_result_nonzero_components),
++               dxbc::Src::R(system_temp_result_),
++               dxbc::Src::R(integer_scale_temp, dxbc::Src::kYYYY));
++      // Release integer_scale_temp.
++      PopSystemTemp();
++    }
    }
  
    uint32_t used_result_zero_components = used_result_components & ~used_result_nonzero_components;
@@ -1265,10 +2920,18 @@ index 1774f97..8ce8c2a 100644
    if (param_gen_interpolator != UINT32_MAX) {
      Modification modification = GetSpirvShaderModification();
 diff --git a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
-index 9ce3bb4..f6c9d8d 100644
+index 9ce3bb4..669a9bc 100644
 --- a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
 +++ b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
-@@ -2044,6 +2044,66 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
+@@ -19,6 +19,7 @@
+ #include <fmt/format.h>
+ 
+ #include <rex/assert.h>
++#include <rex/graphics/flags.h>
+ #include <rex/graphics/pipeline/shader/spirv_translator.h>
+ #include <rex/math.h>
+ 
+@@ -2044,6 +2045,71 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
                  spv::OpFMul, type_float_, result[result_component_index], result_exponent_bias);
            }
          }
@@ -1276,7 +2939,9 @@ index 9ce3bb4..f6c9d8d 100644
 +        // Integer number format (bit 0 of the fetch constant dword 3) on a fixed-point format:
 +        // the hardware returns the raw integer value instead of the normalized one. UFC 3 uses
 +        // this for a k_16 lookup table of tiled addresses in its GPU texture compressor.
-+        {
++        // integer_texture_fetch: all formats below, k_16* only, or off.
++        IntegerTextureFetchMode integer_fetch_mode = GetIntegerTextureFetchMode();
++        if (integer_fetch_mode != IntegerTextureFetchMode::kOff) {
 +          auto load_fetch_constant_dword = [&](uint32_t dword_index) {
 +            uint32_t flat_index = fetch_constant_word_0_index + dword_index;
 +            id_vector_temp_.clear();
@@ -1311,17 +2976,20 @@ index 9ce3bb4..f6c9d8d 100644
 +            }
 +            return any;
 +          };
++          spv::Id integer_scale_other = const_float_1_;
++          if (integer_fetch_mode == IntegerTextureFetchMode::kAll) {
++            // k_8, k_8_8_8_8, k_8_A, k_8_B, k_8_8, k_8_8_8_8_A.
++            integer_scale_other = builder_->createTriOp(
++                spv::OpSelect, type_float_, any_of({2, 6, 8, 9, 10, 14}),
++                builder_->makeFloatConstant(255.0f),
++                // k_4_4_4_4.
++                builder_->createTriOp(spv::OpSelect, type_float_, format_is(15),
++                                      builder_->makeFloatConstant(15.0f), const_float_1_));
++          }
 +          // k_16, k_16_16, k_16_16_16_16.
 +          spv::Id integer_scale = builder_->createTriOp(
 +              spv::OpSelect, type_float_, any_of({24, 25, 26}),
-+              builder_->makeFloatConstant(65535.0f),
-+              // k_8, k_8_8_8_8, k_8_A, k_8_B, k_8_8, k_8_8_8_8_A.
-+              builder_->createTriOp(
-+                  spv::OpSelect, type_float_, any_of({2, 6, 8, 9, 10, 14}),
-+                  builder_->makeFloatConstant(255.0f),
-+                  // k_4_4_4_4.
-+                  builder_->createTriOp(spv::OpSelect, type_float_, format_is(15),
-+                                        builder_->makeFloatConstant(15.0f), const_float_1_)));
++              builder_->makeFloatConstant(65535.0f), integer_scale_other);
 +          integer_scale = builder_->createTriOp(spv::OpSelect, type_float_, is_integer_format,
 +                                                integer_scale, const_float_1_);
 +          uint32_t result_remaining_components = used_result_nonzero_components;
@@ -1544,8 +3212,856 @@ index ec0df7c..e295812 100644
  }
  
  bool SharedMemory::RequestRange(uint32_t start, uint32_t length) {
+diff --git a/src/graphics/util/draw.cpp b/src/graphics/util/draw.cpp
+index 305380e..b908d2e 100644
+--- a/src/graphics/util/draw.cpp
++++ b/src/graphics/util/draw.cpp
+@@ -10,7 +10,16 @@
+  */
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <cmath>
++#include <cstdlib>
++#include <mutex>
++#include <string>
++#include <unordered_set>
++#include <utility>
++#include <vector>
++
++#include <fmt/format.h>
+ 
+ #include <rex/assert.h>
+ #include <rex/cvar.h>
+@@ -31,6 +40,45 @@ REXCVAR_DEFINE_BOOL(half_pixel_offset, true, "GPU", "Enable half pixel offset");
+ REXCVAR_DEFINE_BOOL(resolve_resolution_scale_fill_half_pixel_offset, true, "GPU",
+                     "Fill half pixel offset during resolution scale resolve");
+ 
++REXCVAR_DEFINE_BOOL(resolve_empty_log, false, "GPU",
++                    "Log the vf0 vertices, scissors, window offset, surface and copy registers "
++                    "of the first 64 resolves whose region comes out empty");
++
++REXCVAR_DEFINE_STRING(resolve_negative_origin, "clip", "GPU",
++                      "Resolves whose window scissor top-left is a negative 14-bit value: clip "
++                      "(read it signed, copy only rows >= 0, as hardware writes nothing before "
++                      "the destination base), rebase (patch 0017: copy the rows above row 0 too, "
++                      "moving the EDRAM base and the destination base up) or drop (read it "
++                      "unsigned, so the resolve comes out empty)");
++
++REXCVAR_DEFINE_BOOL(draw_negative_origin, false, "GPU",
++                    "Draws: when the window scissor TL_Y holds a negative 14-bit value, move the "
++                    "draw down by whole EDRAM tile rows and the render target EDRAM bases up by "
++                    "the same tiles instead of dropping it (the draw-side twin of "
++                    "resolve_negative_origin)");
++
++REXCVAR_DEFINE_BOOL(draw_negative_origin_log, false, "GPU",
++                    "Log the scissor, window offset, viewport, surface and render target "
++                    "registers of the first 64 draws whose window scissor top-left is negative");
++
++REXCVAR_DEFINE_BOOL(resolve_log_all, false, "GPU",
++                    "Log the rectangle, EDRAM base and destination of the first 128 resolves, "
++                    "empty or not");
++
++REXCVAR_DEFINE_BOOL(resolve_texture_log, false, "GPU",
++                    "Log each texture fetch whose base lies inside the texture of a resolve "
++                    "rebased by resolve_negative_origin, once per shader / slot / base / size");
++
++REXCVAR_DEFINE_STRING(resolve_log_range, "", "GPU",
++                      "Hex guest range start-end (e.g. 1D190000-1E6D0000): log the first 512 "
++                      "resolves whose destination overlaps it, each after the unique draws and "
++                      "render target ownership transfers since the previous resolve, and the "
++                      "host render targets the resolve reads from");
++
++REXCVAR_DEFINE_BOOL(integer_fetch_log, false, "GPU",
++                    "Log each texture fetch whose fetch constant has the integer number format, "
++                    "once per shader / fetch slot / format / sign / size, at draw time");
++
+ // Very prominent in 545407F2.
+ // DEFINE_bool(
+ //     resolve_resolution_scale_fill_half_pixel_offset, true,
+@@ -579,6 +627,174 @@ void GetScissor(const RegisterFile& regs, Scissor& scissor_out, bool clamp_to_su
+   scissor_out.extent[1] = uint32_t(br_y - tl_y);
+ }
+ 
++namespace {
++
++int32_t SignExtendScissor14(uint32_t v) {
++  return v >= 0x2000 ? int32_t(v) - 0x4000 : int32_t(v);
++}
++
++// Saved and restored by NegativeOriginDrawRebase, in this order.
++uint32_t GetNegativeOriginDrawRegister(uint32_t index) {
++  switch (index) {
++    case 0:
++      return XE_GPU_REG_PA_SC_WINDOW_SCISSOR_TL;
++    case 1:
++      return XE_GPU_REG_PA_SC_WINDOW_SCISSOR_BR;
++    case 2:
++      return XE_GPU_REG_PA_SC_WINDOW_OFFSET;
++    case 3:
++      return XE_GPU_REG_PA_SU_SC_MODE_CNTL;
++    case 4:
++      return XE_GPU_REG_RB_DEPTH_INFO;
++    default:
++      return reg::RB_COLOR_INFO::rt_register_indices[index - 5];
++  }
++}
++
++}  // namespace
++
++NegativeOriginDrawRebase::NegativeOriginDrawRebase(RegisterFile& regs, const Shader* vertex_shader,
++                                                   const Shader* pixel_shader)
++    : regs_(regs) {
++  bool fix = REXCVAR_GET(draw_negative_origin);
++  bool log = REXCVAR_GET(draw_negative_origin_log);
++  if (!fix && !log) {
++    return;
++  }
++  auto window_scissor_tl = regs.Get<reg::PA_SC_WINDOW_SCISSOR_TL>();
++  auto window_scissor_br = regs.Get<reg::PA_SC_WINDOW_SCISSOR_BR>();
++  auto window_offset = regs.Get<reg::PA_SC_WINDOW_OFFSET>();
++  int32_t left = SignExtendScissor14(window_scissor_tl.tl_x);
++  int32_t top = SignExtendScissor14(window_scissor_tl.tl_y);
++  int32_t right = int32_t(window_scissor_br.br_x);
++  int32_t bottom = int32_t(window_scissor_br.br_y);
++  if (!window_scissor_tl.window_offset_disable) {
++    left += window_offset.window_x_offset;
++    top += window_offset.window_y_offset;
++    right += window_offset.window_x_offset;
++    bottom += window_offset.window_y_offset;
++  }
++  if (left >= 0 && top >= 0) {
++    return;
++  }
++
++  auto mode_cntl = regs.Get<reg::PA_SU_SC_MODE_CNTL>();
++  auto surface_info = regs.Get<reg::RB_SURFACE_INFO>();
++  // Only a TL_Y field holding a negative value is rebased. A negative top
++  // made only by the window offset (predicated tiling) keeps today's clamp,
++  // and so does a negative left.
++  const char* result = "not rebased (negative left or window offset only)";
++  uint32_t shift = 0;
++  uint32_t rebase_tiles = 0;
++  if (!fix) {
++    result = "not rebased (draw_negative_origin off)";
++  } else if (window_scissor_tl.tl_y >= 0x2000 && top < 0) {
++    shift = rex::align(uint32_t(-top), UINT32_C(32));
++    int32_t vertex_x_offset = mode_cntl.vtx_window_offset_enable ? window_offset.window_x_offset : 0;
++    int32_t vertex_y_offset =
++        (mode_cntl.vtx_window_offset_enable ? window_offset.window_y_offset : 0) + int32_t(shift);
++    int32_t new_bottom = bottom + int32_t(shift);
++    if (vertex_y_offset > 0x3FFF || new_bottom > 0x3FFF) {
++      result = "not rebased (out of register range)";
++      shift = 0;
++    } else {
++      for (uint32_t i = 0; i < kSavedRegisterCount; ++i) {
++        saved_[i] = regs[GetNegativeOriginDrawRegister(i)];
++      }
++      applied_ = true;
++      // Same tiles as the resolve: rows above the base wrap to the EDRAM end.
++      uint32_t sample_count_log2_y =
++          uint32_t(surface_info.msaa_samples >= xenos::MsaaSamples::k2X);
++      uint32_t pitch_tiles = xenos::GetSurfacePitchTiles(surface_info.surface_pitch,
++                                                         surface_info.msaa_samples, false);
++      rebase_tiles = ((shift << sample_count_log2_y) / xenos::kEdramTileHeightSamples * pitch_tiles) %
++                     xenos::kEdramTileCount;
++      auto depth_info = regs.Get<reg::RB_DEPTH_INFO>();
++      depth_info.depth_base = (depth_info.depth_base - rebase_tiles) & (xenos::kEdramTileCount - 1);
++      regs[XE_GPU_REG_RB_DEPTH_INFO] = depth_info.value;
++      for (uint32_t i = 0; i < xenos::kMaxColorRenderTargets; ++i) {
++        uint32_t color_info_register = reg::RB_COLOR_INFO::rt_register_indices[i];
++        auto color_info = regs.Get<reg::RB_COLOR_INFO>(color_info_register);
++        uint32_t is_64bpp = uint32_t(xenos::IsColorRenderTargetFormat64bpp(color_info.color_format));
++        color_info.color_base =
++            (color_info.color_base - (rebase_tiles << is_64bpp)) & (xenos::kEdramTileCount - 1);
++        regs[color_info_register] = color_info.value;
++      }
++      // The scissor no longer follows the window offset, which now only moves
++      // the vertices down by the shift.
++      int32_t new_left = std::max(left, int32_t(0));
++      reg::PA_SC_WINDOW_SCISSOR_TL new_tl = window_scissor_tl;
++      new_tl.tl_x = uint32_t(new_left);
++      new_tl.tl_y = uint32_t(top + int32_t(shift));
++      new_tl.window_offset_disable = 1;
++      regs[XE_GPU_REG_PA_SC_WINDOW_SCISSOR_TL] = new_tl.value;
++      reg::PA_SC_WINDOW_SCISSOR_BR new_br = window_scissor_br;
++      new_br.br_x = uint32_t(std::min(std::max(right, new_left), int32_t(0x3FFF)));
++      new_br.br_y = uint32_t(new_bottom);
++      regs[XE_GPU_REG_PA_SC_WINDOW_SCISSOR_BR] = new_br.value;
++      reg::PA_SC_WINDOW_OFFSET new_window_offset = window_offset;
++      new_window_offset.window_x_offset = vertex_x_offset;
++      new_window_offset.window_y_offset = vertex_y_offset;
++      regs[XE_GPU_REG_PA_SC_WINDOW_OFFSET] = new_window_offset.value;
++      reg::PA_SU_SC_MODE_CNTL new_mode_cntl = mode_cntl;
++      new_mode_cntl.vtx_window_offset_enable = 1;
++      regs[XE_GPU_REG_PA_SU_SC_MODE_CNTL] = new_mode_cntl.value;
++      result = "rebased";
++    }
++  }
++
++  static std::atomic<uint32_t> log_count{0};
++  if (!log || log_count.fetch_add(1) >= 64) {
++    return;
++  }
++  // Logged from the saved (guest) values when rebased.
++  auto saved_or_current = [&](uint32_t index) {
++    return applied_ ? saved_[index] : regs[GetNegativeOriginDrawRegister(index)];
++  };
++  auto vte_cntl = regs.Get<reg::PA_CL_VTE_CNTL>();
++  auto screen_scissor_tl = regs.Get<reg::PA_SC_SCREEN_SCISSOR_TL>();
++  std::string targets;
++  for (uint32_t i = 0; i < xenos::kMaxColorRenderTargets; ++i) {
++    reg::RB_COLOR_INFO color_info;
++    color_info.value = saved_or_current(5 + i);
++    targets += fmt::format(" color{} base {} format {}", i, uint32_t(color_info.color_base),
++                           uint32_t(color_info.color_format));
++  }
++  reg::RB_DEPTH_INFO depth_info;
++  depth_info.value = saved_or_current(4);
++  REXGPU_WARN(
++      "Negative origin draw: VS {:016X} PS {:016X} window scissor TL raw ({}, {}) BR ({}, {}) "
++      "window_offset_disable {} window offset ({}, {}) vtx_window_offset_enable {} -> "
++      "scissor [{}, {}) x [{}, {}) screen scissor TL ({}, {}) clip_disable {} VTE {:03X} "
++      "viewport scale ({}, {}) offset ({}, {})",
++      vertex_shader ? vertex_shader->ucode_data_hash() : 0,
++      pixel_shader ? pixel_shader->ucode_data_hash() : 0, uint32_t(window_scissor_tl.tl_x),
++      uint32_t(window_scissor_tl.tl_y), uint32_t(window_scissor_br.br_x),
++      uint32_t(window_scissor_br.br_y), uint32_t(window_scissor_tl.window_offset_disable),
++      int32_t(window_offset.window_x_offset), int32_t(window_offset.window_y_offset),
++      uint32_t(mode_cntl.vtx_window_offset_enable), left, right, top, bottom,
++      int32_t(screen_scissor_tl.tl_x), int32_t(screen_scissor_tl.tl_y),
++      uint32_t(regs.Get<reg::PA_CL_CLIP_CNTL>().clip_disable), vte_cntl.value,
++      regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_XSCALE), regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_YSCALE),
++      regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_XOFFSET),
++      regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_YOFFSET));
++  REXGPU_WARN(
++      "Negative origin draw: surface pitch {} msaa {} depth base {} format {}{} edram_mode {} "
++      "-> {} (shift {} rows, {} tiles)",
++      uint32_t(surface_info.surface_pitch), uint32_t(surface_info.msaa_samples),
++      uint32_t(depth_info.depth_base), uint32_t(depth_info.depth_format), targets,
++      uint32_t(regs.Get<reg::RB_MODECONTROL>().edram_mode), result, shift, rebase_tiles);
++}
++
++NegativeOriginDrawRebase::~NegativeOriginDrawRebase() {
++  if (!applied_) {
++    return;
++  }
++  for (uint32_t i = 0; i < kSavedRegisterCount; ++i) {
++    regs_[GetNegativeOriginDrawRegister(i)] = saved_[i];
++  }
++}
++
+ uint32_t GetNormalizedColorMask(const RegisterFile& regs,
+                                 uint32_t pixel_shader_writes_color_targets) {
+   if (regs.Get<reg::RB_MODECONTROL>().edram_mode != xenos::EdramMode::kColorDepth) {
+@@ -665,6 +881,23 @@ void AddMemExportRanges(const RegisterFile& regs, const Shader& shader,
+         break;
+     }
+     uint32_t stream_size_bytes = stream.index_count * (format_info.bits_per_pixel >> 3);
++    // The declared size is only an upper bound (UFC 3's texture compressor
++    // declares 16 MB for mip 0 at 0x1F231000), and a range past the end of
++    // physical memory fails to be requested, dropping the whole draw - keep
++    // the part that exists.
++    constexpr uint64_t kPhysicalMemorySize = 0x20000000;
++    uint64_t stream_base_bytes = uint64_t(stream.base_address) << 2;
++    if (stream_base_bytes < kPhysicalMemorySize &&
++        stream_base_bytes + stream_size_bytes > kPhysicalMemorySize) {
++      static uint32_t clamp_logs_left = 16;
++      if (clamp_logs_left) {
++        --clamp_logs_left;
++        REXGPU_INFO("Memexport stream at {:08X} ({} bytes) clamped to the 512 MB end ({} bytes)",
++                    uint32_t(stream_base_bytes), stream_size_bytes,
++                    uint32_t(kPhysicalMemorySize - stream_base_bytes));
++      }
++      stream_size_bytes = uint32_t(kPhysicalMemorySize - stream_base_bytes);
++    }
+     // Try to reduce the number of shared memory operations when writing
+     // different elements into the same buffer through different exports
+     // (happens in 4D5307E6).
+@@ -683,6 +916,303 @@ void AddMemExportRanges(const RegisterFile& regs, const Shader& shader,
+   }
+ }
+ 
++void LogIntegerTextureFetches(const RegisterFile& regs, const Shader& shader) {
++  if (!REXCVAR_GET(integer_fetch_log)) {
++    return;
++  }
++  // Bounded so a game cycling through texture sizes can't grow this forever.
++  constexpr size_t kMaxLogged = 512;
++  static std::mutex logged_mutex;
++  static std::unordered_set<std::string> logged;
++  for (const Shader::TextureBinding& binding : shader.texture_bindings()) {
++    xenos::xe_gpu_texture_fetch_t fetch = regs.GetTextureFetch(binding.fetch_constant);
++    if (!fetch.num_format) {
++      continue;
++    }
++    uint32_t width = 0, height = 0, depth = 0;
++    switch (fetch.dimension) {
++      case xenos::DataDimension::k1D:
++        width = fetch.size_1d.width + 1;
++        height = 1;
++        depth = 1;
++        break;
++      case xenos::DataDimension::k3D:
++        width = fetch.size_3d.width + 1;
++        height = fetch.size_3d.height + 1;
++        depth = fetch.size_3d.depth + 1;
++        break;
++      default:
++        width = fetch.size_2d.width + 1;
++        height = fetch.size_2d.height + 1;
++        depth = fetch.size_2d.stack_depth + 1;
++        break;
++    }
++    uint32_t format = uint32_t(fetch.format);
++    std::string key = fmt::format("{:016X}/{}/{}/{}{}{}{}/{}x{}x{}", shader.ucode_data_hash(),
++                                  binding.fetch_constant, format, uint32_t(fetch.sign_x),
++                                  uint32_t(fetch.sign_y), uint32_t(fetch.sign_z),
++                                  uint32_t(fetch.sign_w), width, height, depth);
++    {
++      std::lock_guard<std::mutex> lock(logged_mutex);
++      if (logged.size() >= kMaxLogged || !logged.insert(key).second) {
++        continue;
++      }
++    }
++    // The scale the translated shader applies (see integer_texture_fetch).
++    float scale = 1.0f;
++    IntegerTextureFetchMode mode = GetIntegerTextureFetchMode();
++    if (mode != IntegerTextureFetchMode::kOff) {
++      if (format == 24 || format == 25 || format == 26) {
++        scale = 65535.0f;
++      } else if (mode == IntegerTextureFetchMode::kAll) {
++        if (format == 2 || format == 6 || format == 8 || format == 9 || format == 10 ||
++            format == 14) {
++          scale = 255.0f;
++        } else if (format == 15) {
++          scale = 15.0f;
++        }
++      }
++    }
++    const FormatInfo* format_info = FormatInfo::Get(fetch.format);
++    REXGPU_WARN(
++        "Integer fetch: {} shader {:016X} tf{} format {} ({}) sign {}{}{}{} dim {} {}x{}x{} "
++        "base {:08X} mip {:08X} tiled {} endian {} swizzle {:03X} exp_adjust {} "
++        "filter {}/{} instr {} filter {}/{} unnorm_coords {} offset {},{} host scale {}",
++        shader.type() == xenos::ShaderType::kVertex ? "vertex" : "pixel",
++        shader.ucode_data_hash(), binding.fetch_constant, format,
++        format_info ? format_info->name : "?", uint32_t(fetch.sign_x), uint32_t(fetch.sign_y),
++        uint32_t(fetch.sign_z), uint32_t(fetch.sign_w), uint32_t(fetch.dimension), width,
++        height, depth, uint32_t(fetch.base_address) << 12, uint32_t(fetch.mip_address) << 12,
++        uint32_t(fetch.tiled), uint32_t(fetch.endianness), uint32_t(fetch.swizzle),
++        int32_t(fetch.exp_adjust), uint32_t(fetch.mag_filter), uint32_t(fetch.min_filter),
++        binding.fetch_instr.opcode_name ? binding.fetch_instr.opcode_name : "?",
++        uint32_t(binding.fetch_instr.attributes.mag_filter),
++        uint32_t(binding.fetch_instr.attributes.min_filter),
++        binding.fetch_instr.attributes.unnormalized_coordinates ? 1 : 0,
++        binding.fetch_instr.attributes.offset_x, binding.fetch_instr.attributes.offset_y, scale);
++  }
++}
++
++namespace {
++
++// Textures written by resolves rebased by resolve_negative_origin, for
++// resolve_texture_log.
++struct RebasedResolveTexture {
++  uint32_t start;
++  uint32_t end;
++  uint32_t guest_dest_base;
++};
++std::mutex rebased_resolve_textures_mutex;
++std::vector<RebasedResolveTexture> rebased_resolve_textures;
++
++void NoteRebasedResolveTexture(uint32_t start, uint32_t end, uint32_t guest_dest_base) {
++  constexpr size_t kMaxTextures = 16;
++  std::lock_guard<std::mutex> lock(rebased_resolve_textures_mutex);
++  for (const RebasedResolveTexture& texture : rebased_resolve_textures) {
++    if (texture.start == start && texture.end == end) {
++      return;
++    }
++  }
++  if (rebased_resolve_textures.size() < kMaxTextures) {
++    rebased_resolve_textures.push_back({start, end, guest_dest_base});
++  }
++}
++
++}  // namespace
++
++void LogRebasedResolveTextureFetches(const RegisterFile& regs, const Shader& shader) {
++  if (!REXCVAR_GET(resolve_texture_log)) {
++    return;
++  }
++  constexpr size_t kMaxLogged = 256;
++  static std::mutex logged_mutex;
++  static std::unordered_set<std::string> logged;
++  for (const Shader::TextureBinding& binding : shader.texture_bindings()) {
++    xenos::xe_gpu_texture_fetch_t fetch = regs.GetTextureFetch(binding.fetch_constant);
++    uint32_t base = uint32_t(fetch.base_address) << 12;
++    RebasedResolveTexture texture = {};
++    {
++      std::lock_guard<std::mutex> lock(rebased_resolve_textures_mutex);
++      for (const RebasedResolveTexture& rebased : rebased_resolve_textures) {
++        if (base >= rebased.start && base < rebased.end) {
++          texture = rebased;
++          break;
++        }
++      }
++    }
++    if (!texture.end) {
++      continue;
++    }
++    uint32_t width = fetch.size_2d.width + 1;
++    uint32_t height = fetch.size_2d.height + 1;
++    std::string key = fmt::format("{:016X}/{}/{:08X}/{}x{}", shader.ucode_data_hash(),
++                                  binding.fetch_constant, base, width, height);
++    {
++      std::lock_guard<std::mutex> lock(logged_mutex);
++      if (logged.size() >= kMaxLogged || !logged.insert(key).second) {
++        continue;
++      }
++    }
++    const FormatInfo* format_info = FormatInfo::Get(fetch.format);
++    REXGPU_WARN(
++        "Rebased resolve texture fetch: {} shader {:016X} tf{} base {:08X} (resolved texture "
++        "{:08X}..{:08X}, guest dest base {:08X}) mip {:08X} dim {} {}x{} pitch {} tiled {} "
++        "format {} ({}) endian {} swizzle {:03X} packed_mips {} mip levels {}..{}",
++        shader.type() == xenos::ShaderType::kVertex ? "vertex" : "pixel", shader.ucode_data_hash(),
++        binding.fetch_constant, base, texture.start, texture.end, texture.guest_dest_base,
++        uint32_t(fetch.mip_address) << 12, uint32_t(fetch.dimension), width, height,
++        uint32_t(fetch.pitch) << 5, uint32_t(fetch.tiled), uint32_t(fetch.format),
++        format_info ? format_info->name : "?", uint32_t(fetch.endianness),
++        uint32_t(fetch.swizzle), uint32_t(fetch.packed_mips), uint32_t(fetch.mip_min_level),
++        uint32_t(fetch.mip_max_level));
++  }
++}
++
++namespace {
++
++struct ResolveLogRange {
++  uint32_t start = 0;
++  uint32_t end = 0;
++};
++
++const ResolveLogRange& GetResolveLogRange() {
++  static const ResolveLogRange range = []() {
++    ResolveLogRange parsed;
++    const std::string& value = REXCVAR_GET(resolve_log_range);
++    size_t dash = value.find('-');
++    if (dash == std::string::npos) {
++      return parsed;
++    }
++    uint32_t start = uint32_t(std::strtoul(value.substr(0, dash).c_str(), nullptr, 16));
++    uint32_t end = uint32_t(std::strtoul(value.substr(dash + 1).c_str(), nullptr, 16));
++    if (end > start) {
++      parsed.start = start;
++      parsed.end = end;
++      REXGPU_INFO("resolve_log_range: logging resolves into {:08X}..{:08X}", start, end);
++    }
++    return parsed;
++  }();
++  return range;
++}
++
++// Unique context lines since the previous resolve, with repeat counts.
++std::mutex resolve_log_range_mutex;
++std::vector<std::pair<std::string, uint32_t>> resolve_log_range_context;
++bool resolve_log_range_context_overflow = false;
++std::atomic<bool> resolve_log_range_last_in_range{false};
++std::atomic<uint32_t> resolve_log_range_resolve_count{0};
++std::atomic<uint32_t> resolve_log_range_context_count{0};
++
++// Called by GetResolveInfo for every resolve: prints the context if the
++// destination overlaps the range, drops it otherwise.
++void ResolveLogRangeOnResolve(uint32_t extent_start, uint32_t extent_end,
++                              const std::string& resolve_line) {
++  const ResolveLogRange& range = GetResolveLogRange();
++  std::vector<std::pair<std::string, uint32_t>> context;
++  bool overflow;
++  {
++    std::lock_guard<std::mutex> lock(resolve_log_range_mutex);
++    context.swap(resolve_log_range_context);
++    overflow = resolve_log_range_context_overflow;
++    resolve_log_range_context_overflow = false;
++  }
++  bool in_range = extent_end > range.start && extent_start < range.end &&
++                  resolve_log_range_resolve_count.fetch_add(1) < 512;
++  resolve_log_range_last_in_range = in_range;
++  if (!in_range) {
++    return;
++  }
++  for (const auto& line : context) {
++    // Bounded across the whole run, the resolve lines themselves are not.
++    if (resolve_log_range_context_count.fetch_add(1) >= 8192) {
++      break;
++    }
++    REXGPU_WARN("Range resolve context: {} (x{})", line.first, line.second);
++  }
++  if (overflow) {
++    REXGPU_WARN("Range resolve context: more than 64 unique lines, rest dropped");
++  }
++  REXGPU_WARN("Range resolve: {}", resolve_line);
++}
++
++}  // namespace
++
++bool IsResolveLogRangeEnabled() { return GetResolveLogRange().end != 0; }
++
++void NoteResolveLogRangeContext(std::string line) {
++  if (!IsResolveLogRangeEnabled()) {
++    return;
++  }
++  std::lock_guard<std::mutex> lock(resolve_log_range_mutex);
++  for (auto& existing : resolve_log_range_context) {
++    if (existing.first == line) {
++      ++existing.second;
++      return;
++    }
++  }
++  if (resolve_log_range_context.size() >= 64) {
++    resolve_log_range_context_overflow = true;
++    return;
++  }
++  resolve_log_range_context.emplace_back(std::move(line), 1);
++}
++
++void NoteResolveLogRangeSource(const std::string& line) {
++  if (!IsResolveLogRangeEnabled() || !resolve_log_range_last_in_range) {
++    return;
++  }
++  REXGPU_WARN("Range resolve source: {}", line);
++}
++
++void NoteResolveLogRangeDraw(const RegisterFile& regs, const Shader* vertex_shader,
++                             const Shader* pixel_shader) {
++  if (!IsResolveLogRangeEnabled()) {
++    return;
++  }
++  auto surface_info = regs.Get<reg::RB_SURFACE_INFO>();
++  auto window_scissor_tl = regs.Get<reg::PA_SC_WINDOW_SCISSOR_TL>();
++  auto window_scissor_br = regs.Get<reg::PA_SC_WINDOW_SCISSOR_BR>();
++  auto window_offset = regs.Get<reg::PA_SC_WINDOW_OFFSET>();
++  auto depth_info = regs.Get<reg::RB_DEPTH_INFO>();
++  auto depth_control = regs.Get<reg::RB_DEPTHCONTROL>();
++  std::string targets;
++  uint32_t color_mask = regs[XE_GPU_REG_RB_COLOR_MASK];
++  for (uint32_t i = 0; i < xenos::kMaxColorRenderTargets; ++i) {
++    if (!((color_mask >> (4 * i)) & 0xF)) {
++      continue;
++    }
++    auto color_info =
++        regs.Get<reg::RB_COLOR_INFO>(reg::RB_COLOR_INFO::rt_register_indices[i]);
++    targets += fmt::format(" color{} base {} format {} mask {:X}", i,
++                           uint32_t(color_info.color_base), uint32_t(color_info.color_format),
++                           (color_mask >> (4 * i)) & 0xF);
++  }
++  std::string textures;
++  if (pixel_shader) {
++    for (const Shader::TextureBinding& binding : pixel_shader->texture_bindings()) {
++      xenos::xe_gpu_texture_fetch_t fetch = regs.GetTextureFetch(binding.fetch_constant);
++      textures += fmt::format(" tf{} {:08X} {}x{} f{} t{}", binding.fetch_constant,
++                              uint32_t(fetch.base_address) << 12, fetch.size_2d.width + 1,
++                              fetch.size_2d.height + 1, uint32_t(fetch.format),
++                              uint32_t(fetch.tiled));
++    }
++  }
++  NoteResolveLogRangeContext(fmt::format(
++      "Draw: VS {:016X} PS {:016X} edram_mode {} pitch {} msaa {}{} depth base {} format {} "
++      "z/stencil {}{} scissor TL ({}, {}) BR ({}, {}) offset_disable {} window offset ({}, {}) "
++      "textures:{}",
++      vertex_shader ? vertex_shader->ucode_data_hash() : 0,
++      pixel_shader ? pixel_shader->ucode_data_hash() : 0,
++      uint32_t(regs.Get<reg::RB_MODECONTROL>().edram_mode), uint32_t(surface_info.surface_pitch),
++      uint32_t(surface_info.msaa_samples), targets, uint32_t(depth_info.depth_base),
++      uint32_t(depth_info.depth_format), uint32_t(depth_control.z_enable),
++      uint32_t(depth_control.stencil_enable), uint32_t(window_scissor_tl.tl_x),
++      uint32_t(window_scissor_tl.tl_y), uint32_t(window_scissor_br.br_x),
++      uint32_t(window_scissor_br.br_y), uint32_t(window_scissor_tl.window_offset_disable),
++      int32_t(window_offset.window_x_offset), int32_t(window_offset.window_y_offset),
++      textures.empty() ? " none" : textures));
++}
++
+ xenos::CopySampleSelect SanitizeCopySampleSelect(xenos::CopySampleSelect copy_sample_select,
+                                                  xenos::MsaaSamples msaa_samples, bool is_depth) {
+   // Depth can't be averaged.
+@@ -815,6 +1345,8 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
+   // Bottom-right - exclude .5.
+   x1 = (x1 + 127) >> 8;
+   y1 = (y1 + 127) >> 8;
++  // For resolve_empty_log.
++  int32_t vertices_x0 = x0, vertices_y0 = y0, vertices_x1 = x1, vertices_y1 = y1;
+ 
+   auto pa_sc_window_offset = regs.Get<reg::PA_SC_WINDOW_OFFSET>();
+ 
+@@ -827,17 +1359,66 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
+   }
+ 
+   // Apply the scissor and prevent negative origin (behind the EDRAM base).
+-  Scissor scissor;
+-  // False because clamping to the surface pitch will be done later (it will be
+-  // aligned to the resolve alignment here, for resolving from render targets
+-  // with a pitch that is not a multiple of 8).
+-  GetScissor(regs, scissor, false);
+-  int32_t scissor_right = int32_t(scissor.offset[0] + scissor.extent[0]);
+-  int32_t scissor_bottom = int32_t(scissor.offset[1] + scissor.extent[1]);
+-  x0 = std::clamp(x0, int32_t(scissor.offset[0]), scissor_right);
+-  y0 = std::clamp(y0, int32_t(scissor.offset[1]), scissor_bottom);
+-  x1 = std::clamp(x1, int32_t(scissor.offset[0]), scissor_right);
+-  y1 = std::clamp(y1, int32_t(scissor.offset[1]), scissor_bottom);
++  int32_t scissor_left, scissor_top, scissor_right, scissor_bottom;
++  const std::string& negative_origin_mode = REXCVAR_GET(resolve_negative_origin);
++  bool negative_origin_rebase = negative_origin_mode == "rebase";
++  bool negative_origin = negative_origin_rebase || negative_origin_mode != "drop";
++  if (negative_origin) {
++    // A composite rendered in bands can resolve a band starting above row 0,
++    // with the window scissor TL_Y holding a negative 14-bit value (-320 written
++    // as 16064 in UFC 3's create-a-fighter composites). Read TL signed, clamp
++    // only to the screen scissor BR; the negative top is clipped or rebased
++    // below.
++    auto sign_extend_14 = [](uint32_t v) {
++      return v >= 0x2000 ? int32_t(v) - 0x4000 : int32_t(v);
++    };
++    auto pa_sc_window_scissor_tl = regs.Get<reg::PA_SC_WINDOW_SCISSOR_TL>();
++    auto pa_sc_window_scissor_br = regs.Get<reg::PA_SC_WINDOW_SCISSOR_BR>();
++    scissor_left = sign_extend_14(pa_sc_window_scissor_tl.tl_x);
++    scissor_top = sign_extend_14(pa_sc_window_scissor_tl.tl_y);
++    scissor_right = int32_t(pa_sc_window_scissor_br.br_x);
++    scissor_bottom = int32_t(pa_sc_window_scissor_br.br_y);
++    if (!pa_sc_window_scissor_tl.window_offset_disable) {
++      scissor_left += pa_sc_window_offset.window_x_offset;
++      scissor_top += pa_sc_window_offset.window_y_offset;
++      scissor_right += pa_sc_window_offset.window_x_offset;
++      scissor_bottom += pa_sc_window_offset.window_y_offset;
++    }
++    auto pa_sc_screen_scissor_br = regs.Get<reg::PA_SC_SCREEN_SCISSOR_BR>();
++    scissor_right = std::min(scissor_right, int32_t(pa_sc_screen_scissor_br.br_x));
++    scissor_bottom = std::min(scissor_bottom, int32_t(pa_sc_screen_scissor_br.br_y));
++    scissor_right = std::max(scissor_right, scissor_left);
++    scissor_bottom = std::max(scissor_bottom, scissor_top);
++  } else {
++    Scissor scissor;
++    // False because clamping to the surface pitch will be done later (it will be
++    // aligned to the resolve alignment here, for resolving from render targets
++    // with a pitch that is not a multiple of 8).
++    GetScissor(regs, scissor, false);
++    scissor_left = int32_t(scissor.offset[0]);
++    scissor_top = int32_t(scissor.offset[1]);
++    scissor_right = int32_t(scissor.offset[0] + scissor.extent[0]);
++    scissor_bottom = int32_t(scissor.offset[1] + scissor.extent[1]);
++  }
++  x0 = std::clamp(x0, scissor_left, scissor_right);
++  y0 = std::clamp(y0, scissor_top, scissor_bottom);
++  x1 = std::clamp(x1, scissor_left, scissor_right);
++  y1 = std::clamp(y1, scissor_top, scissor_bottom);
++  // Only a negative top is rebased; a negative left is still dropped.
++  x0 = std::max(x0, int32_t(0));
++  x1 = std::max(x1, int32_t(0));
++  if (negative_origin && !negative_origin_rebase && y0 < 0) {
++    // Clip: UFC 3 builds its 2048-row create-a-fighter skin in two 1024-row
++    // halves, and the bottom half's band (-320..256) must only write dest rows
++    // >= 0, keeping rows the top half already wrote before its dest base.
++    static std::atomic<uint32_t> clip_log_count{0};
++    if (clip_log_count.fetch_add(1) < 16) {
++      REXGPU_INFO("Resolve clipped {} negative rows: rect [{}, {}) x [{}, {}), dest base {:08X}",
++                  -y0, x0, x1, y0, y1, regs[XE_GPU_REG_RB_COPY_DEST_BASE]);
++    }
++    y0 = 0;
++    y1 = std::max(y1, int32_t(0));
++  }
+ 
+   assert_true(x0 <= x1 && y0 <= y1);
+ 
+@@ -885,6 +1466,71 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
+   assert_true(x0 < x1 && y0 < y1);
+   if (x0 >= x1 || y0 >= y1) {
+     REXGPU_ERROR("Resolve region is empty");
++    static std::atomic<uint32_t> empty_log_count{0};
++    if (REXCVAR_GET(resolve_empty_log) && empty_log_count.fetch_add(1) < 64) {
++      const uint32_t* vertex_dwords = reinterpret_cast<const uint32_t*>(vertices_guest);
++      float vertices_swapped[6];
++      for (size_t i = 0; i < rex::countof(vertices_swapped); ++i) {
++        vertices_swapped[i] = xenos::GpuSwap(vertices_guest[i], fetch.endian);
++      }
++      auto screen_scissor_tl = regs.Get<reg::PA_SC_SCREEN_SCISSOR_TL>();
++      auto screen_scissor_br = regs.Get<reg::PA_SC_SCREEN_SCISSOR_BR>();
++      auto window_scissor_tl = regs.Get<reg::PA_SC_WINDOW_SCISSOR_TL>();
++      auto window_scissor_br = regs.Get<reg::PA_SC_WINDOW_SCISSOR_BR>();
++      auto surface_info = regs.Get<reg::RB_SURFACE_INFO>();
++      auto copy_dest_info = regs.Get<reg::RB_COPY_DEST_INFO>();
++      auto copy_dest_pitch = regs.Get<reg::RB_COPY_DEST_PITCH>();
++      std::string source_format;
++      if (rb_copy_control.copy_src_select < xenos::kMaxColorRenderTargets) {
++        auto color_info = regs.Get<reg::RB_COLOR_INFO>(
++            reg::RB_COLOR_INFO::rt_register_indices[rb_copy_control.copy_src_select]);
++        source_format = fmt::format("color{} format {} base {}",
++                                    uint32_t(rb_copy_control.copy_src_select),
++                                    uint32_t(color_info.color_format), uint32_t(color_info.color_base));
++      } else {
++        auto depth_info = regs.Get<reg::RB_DEPTH_INFO>();
++        source_format = fmt::format("depth format {} base {}", uint32_t(depth_info.depth_format),
++                                    uint32_t(depth_info.depth_base));
++      }
++      REXGPU_WARN(
++          "Empty resolve: vf0 address {:08X} type {} size {} endian {} raw {:08X} {:08X} {:08X} "
++          "{:08X} {:08X} {:08X} = ({}, {}) ({}, {}) ({}, {}) pix_center {} -> vertex rect "
++          "[{}, {}) x [{}, {})",
++          uint32_t(fetch.address) << 2, uint32_t(fetch.type), uint32_t(fetch.size), uint32_t(fetch.endian),
++          vertex_dwords[0], vertex_dwords[1], vertex_dwords[2], vertex_dwords[3],
++          vertex_dwords[4], vertex_dwords[5], vertices_swapped[0], vertices_swapped[1],
++          vertices_swapped[2], vertices_swapped[3], vertices_swapped[4], vertices_swapped[5],
++          uint32_t(regs.Get<reg::PA_SU_VTX_CNTL>().pix_center), vertices_x0, vertices_x1,
++          vertices_y0, vertices_y1);
++      REXGPU_WARN(
++          "Empty resolve: screen scissor ({}, {})-({}, {}) window scissor ({}, {})-({}, {}) "
++          "window_offset_disable {} window offset ({}, {}) vtx_window_offset_enable {} -> "
++          "scissor ({}, {}) {}x{} -> rect [{}, {}) x [{}, {})",
++          int32_t(screen_scissor_tl.tl_x), int32_t(screen_scissor_tl.tl_y),
++          int32_t(screen_scissor_br.br_x), int32_t(screen_scissor_br.br_y),
++          uint32_t(window_scissor_tl.tl_x), uint32_t(window_scissor_tl.tl_y),
++          uint32_t(window_scissor_br.br_x), uint32_t(window_scissor_br.br_y),
++          uint32_t(window_scissor_tl.window_offset_disable),
++          int32_t(pa_sc_window_offset.window_x_offset),
++          int32_t(pa_sc_window_offset.window_y_offset),
++          uint32_t(regs.Get<reg::PA_SU_SC_MODE_CNTL>().vtx_window_offset_enable),
++          scissor_left, scissor_top, scissor_right - scissor_left, scissor_bottom - scissor_top,
++          x0, x1, y0, y1);
++      REXGPU_WARN(
++          "Empty resolve: surface pitch {} msaa {} source {} copy_control {:08X} (src {} "
++          "sample {} command {} clear color {} depth {}) dest base {:08X} pitch {} height {} "
++          "format {} number {} endian {} exp_bias {} swap {}",
++          uint32_t(surface_info.surface_pitch), uint32_t(surface_info.msaa_samples),
++          source_format, rb_copy_control.value, uint32_t(rb_copy_control.copy_src_select),
++          uint32_t(rb_copy_control.copy_sample_select),
++          uint32_t(rb_copy_control.copy_command),
++          uint32_t(rb_copy_control.color_clear_enable),
++          uint32_t(rb_copy_control.depth_clear_enable), regs[XE_GPU_REG_RB_COPY_DEST_BASE],
++          uint32_t(copy_dest_pitch.copy_dest_pitch), uint32_t(copy_dest_pitch.copy_dest_height),
++          uint32_t(copy_dest_info.copy_dest_format), uint32_t(copy_dest_info.copy_dest_number),
++          uint32_t(copy_dest_info.copy_dest_endian), int32_t(copy_dest_info.copy_dest_exp_bias),
++          uint32_t(copy_dest_info.copy_dest_swap));
++    }
+     return false;
+   }
+ 
+@@ -955,6 +1601,51 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
+       (rb_copy_dest_pitch.copy_dest_height + (xenos::kTextureTileWidthHeight - 1)) >>
+       xenos::kTextureTileWidthHeightLog2;
+   const FormatInfo& dest_format_info = *FormatInfo::Get(dest_format);
++  // Negative top (resolve_negative_origin only): move the rectangle down by a
++  // whole number of destination Y base granules (32 rows or more, also whole
++  // EDRAM tile rows at any MSAA), and move the destination base up by the same
++  // rows here and the EDRAM base below, so the same rows land at the same bytes.
++  uint32_t rebase_rows = 0;
++  if (y0 < 0) {
++    uint32_t rebase_y_granularity_log2 = xenos::kTextureTileWidthHeightLog2;
++    uint32_t rebase_bpp_log2 = 2;
++    if (is_depth || dest_format_info.type == FormatType::kResolvable) {
++      rebase_bpp_log2 = rex::log2_floor(dest_format_info.bits_per_pixel >> 3);
++      rebase_y_granularity_log2 =
++          std::max(rebase_y_granularity_log2,
++                   xenos::GetTextureTiledYBaseGranularityLog2(
++                       bool(rb_copy_dest_info.copy_dest_array), rebase_bpp_log2));
++    }
++    rebase_rows = rex::align(uint32_t(-y0), UINT32_C(1) << rebase_y_granularity_log2);
++    y0 += int32_t(rebase_rows);
++    y1 += int32_t(rebase_rows);
++    uint32_t rebase_bytes =
++        rb_copy_dest_info.copy_dest_array
++            ? uint32_t(texture_util::GetTiledOffset3D(
++                  0, int32_t(rebase_rows), 0, rb_copy_dest_pitch.copy_dest_pitch,
++                  rb_copy_dest_pitch.copy_dest_height, rebase_bpp_log2))
++            : uint32_t(texture_util::GetTiledOffset2D(
++                  0, int32_t(rebase_rows), rb_copy_dest_pitch.copy_dest_pitch, rebase_bpp_log2));
++    static std::atomic<uint32_t> rebase_log_count{0};
++    if (rebase_log_count.fetch_add(1) < 16) {
++      REXGPU_INFO("Resolve rebased by {} rows: rect [{}, {}) x [{}, {}), dest base {:08X} -> {:08X}",
++                  rebase_rows, x0, x1, y0, y1, rb_copy_dest_base, rb_copy_dest_base - rebase_bytes);
++    }
++    rb_copy_dest_base -= rebase_bytes;
++    copy_dest_base_adjusted = rb_copy_dest_base;
++    if (REXCVAR_GET(resolve_texture_log)) {
++      // One texture size on both sides of the rebased base, to also catch a
++      // reader whose texture starts earlier than row 0 of this resolve.
++      uint32_t texture_bytes =
++          ((uint32_t(info_out.copy_dest_coordinate_info.pitch_aligned_div_32) *
++            uint32_t(info_out.copy_dest_coordinate_info.height_aligned_div_32))
++           << (2 * xenos::kTextureTileWidthHeightLog2))
++          << rebase_bpp_log2;
++      NoteRebasedResolveTexture(rb_copy_dest_base - std::min(rb_copy_dest_base, texture_bytes),
++                                rb_copy_dest_base + texture_bytes,
++                                regs[XE_GPU_REG_RB_COPY_DEST_BASE]);
++    }
++  }
+   if (is_depth || dest_format_info.type == FormatType::kResolvable) {
+     uint32_t bpp_log2 = rex::log2_floor(dest_format_info.bits_per_pixel >> 3);
+     uint32_t dest_base_relative_x_mask = (UINT32_C(1) << xenos::GetTextureTiledXBaseGranularityLog2(
+@@ -1024,6 +1715,14 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
+                                                              rb_surface_info.msaa_samples, false);
+   uint32_t edram_base_offset_tiles =
+       base_offset_y_tiles * surface_pitch_tiles + base_offset_x_tiles;
++  if (rebase_rows) {
++    // The rebased rows sit before the surface base, wrapping around the EDRAM.
++    uint32_t rebase_tiles = ((rebase_rows << sample_count_log2_y) / xenos::kEdramTileHeightSamples *
++                             surface_pitch_tiles) %
++                            xenos::kEdramTileCount;
++    edram_base_offset_tiles =
++        (edram_base_offset_tiles + xenos::kEdramTileCount - rebase_tiles) % xenos::kEdramTileCount;
++  }
+ 
+   // Write the color/depth EDRAM info.
+   bool fill_half_pixel_offset =
+@@ -1107,6 +1806,51 @@ bool GetResolveInfo(const RegisterFile& regs, const memory::Memory& memory,
+                      xenos::ColorRenderTargetFormat(color_edram_info.format)),
+       dest_format_info.name, rb_copy_dest_base, copy_dest_extent_start, copy_dest_extent_end);
+ 
++  static std::atomic<uint32_t> all_log_count{0};
++  if (REXCVAR_GET(resolve_log_all) && all_log_count.fetch_add(1) < 128) {
++    REXGPU_WARN(
++        "Resolve: rect [{}, {}) x [{}, {}) rebased {} rows, {} {} base {} tiles pitch {} tiles "
++        "msaa {} copy_control {:08X} -> dest base {:08X} (guest {:08X}) pitch {} height {} "
++        "format {} endian {} swap {} array {} extent {:08X}..{:08X}",
++        x0, x1, y0, y1, rebase_rows, is_depth ? "depth" : "color",
++        is_depth ? xenos::GetDepthRenderTargetFormatName(
++                       xenos::DepthRenderTargetFormat(depth_edram_info.format))
++                 : xenos::GetColorRenderTargetFormatName(
++                       xenos::ColorRenderTargetFormat(color_edram_info.format)),
++        is_depth ? uint32_t(depth_edram_info.base_tiles) : uint32_t(color_edram_info.base_tiles),
++        is_depth ? uint32_t(depth_edram_info.pitch_tiles) : uint32_t(color_edram_info.pitch_tiles),
++        uint32_t(rb_surface_info.msaa_samples), rb_copy_control.value, rb_copy_dest_base,
++        regs[XE_GPU_REG_RB_COPY_DEST_BASE], uint32_t(rb_copy_dest_pitch.copy_dest_pitch),
++        uint32_t(rb_copy_dest_pitch.copy_dest_height), dest_format_info.name,
++        uint32_t(rb_copy_dest_info.copy_dest_endian), uint32_t(rb_copy_dest_info.copy_dest_swap),
++        uint32_t(rb_copy_dest_info.copy_dest_array), copy_dest_extent_start, copy_dest_extent_end);
++  }
++
++  if (IsResolveLogRangeEnabled()) {
++    ResolveLogRangeOnResolve(
++        copy_dest_extent_start, copy_dest_extent_end,
++        fmt::format(
++            "rect [{}, {}) x [{}, {}) rebased {} rows, {} {} base {} tiles pitch {} tiles "
++            "msaa {} copy_control {:08X} -> dest base {:08X} (guest {:08X}) pitch {} height {} "
++            "format {} endian {} swap {} array {} extent {:08X}..{:08X}",
++            x0, x1, y0, y1, rebase_rows, is_depth ? "depth" : "color",
++            is_depth ? xenos::GetDepthRenderTargetFormatName(
++                           xenos::DepthRenderTargetFormat(depth_edram_info.format))
++                     : xenos::GetColorRenderTargetFormatName(
++                           xenos::ColorRenderTargetFormat(color_edram_info.format)),
++            is_depth ? uint32_t(depth_edram_info.base_tiles)
++                     : uint32_t(color_edram_info.base_tiles),
++            is_depth ? uint32_t(depth_edram_info.pitch_tiles)
++                     : uint32_t(color_edram_info.pitch_tiles),
++            uint32_t(rb_surface_info.msaa_samples), rb_copy_control.value, rb_copy_dest_base,
++            regs[XE_GPU_REG_RB_COPY_DEST_BASE], uint32_t(rb_copy_dest_pitch.copy_dest_pitch),
++            uint32_t(rb_copy_dest_pitch.copy_dest_height), dest_format_info.name,
++            uint32_t(rb_copy_dest_info.copy_dest_endian),
++            uint32_t(rb_copy_dest_info.copy_dest_swap),
++            uint32_t(rb_copy_dest_info.copy_dest_array), copy_dest_extent_start,
++            copy_dest_extent_end));
++  }
++
+   return true;
+ }
+ 
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index 001f36b..af3be6e 100644
+index 001f36b..797deda 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
 @@ -616,6 +616,7 @@ void VulkanCommandProcessor::InvalidateAllVertexBufferResidency() {
@@ -1556,7 +4072,41 @@ index 001f36b..af3be6e 100644
    }
  }
  
-@@ -3979,6 +3980,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -1938,6 +1939,7 @@ void VulkanCommandProcessor::ShutdownContext() {
+   }
+   memexport_readback_buffers_.clear();
+ 
++  DestroyOnDemandReadbackBuffer();
+   resolve_downscale_buffer_size_ = 0;
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyBuffer, device, resolve_downscale_buffer_);
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device,
+@@ -3616,6 +3618,12 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     return IssueCopy();
+   }
+ 
++  // Patches the registers for this draw only (restored on return) if the
++  // scissor starts above the render target base.
++  draw_util::NegativeOriginDrawRebase negative_origin_rebase(
++      *register_file_, active_vertex_shader(), active_pixel_shader());
++  draw_util::NoteResolveLogRangeDraw(regs, active_vertex_shader(), active_pixel_shader());
++
+   bool surface_pitch_is_zero = regs.Get<reg::RB_SURFACE_INFO>().surface_pitch == 0;
+ 
+   const ui::vulkan::VulkanDevice::Properties& device_properties = GetVulkanDevice()->properties();
+@@ -3679,6 +3687,12 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     }
+     draw_util::AddMemExportRanges(regs, *pixel_shader, memexport_ranges_);
+   }
++  draw_util::LogIntegerTextureFetches(regs, *vertex_shader);
++  draw_util::LogRebasedResolveTextureFetches(regs, *vertex_shader);
++  if (pixel_shader) {
++    draw_util::LogIntegerTextureFetches(regs, *pixel_shader);
++    draw_util::LogRebasedResolveTextureFetches(regs, *pixel_shader);
++  }
+   reg::RB_DEPTHCONTROL normalized_depth_control = draw_util::GetNormalizedDepthControl(regs);
+ 
+   uint32_t ps_param_gen_pos = UINT32_MAX;
+@@ -3979,6 +3993,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
  
    // Ensure vertex buffers are resident.
    const Shader::ConstantRegisterMap& constant_map_vertex = vertex_shader->constant_register_map();
@@ -1565,7 +4115,7 @@ index 001f36b..af3be6e 100644
    for (uint32_t i = 0; i < rex::countof(constant_map_vertex.vertex_fetch_bitmap); ++i) {
      uint32_t vfetch_bits_remaining = constant_map_vertex.vertex_fetch_bitmap[i];
      uint32_t j;
-@@ -3987,6 +3990,15 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -3987,6 +4003,15 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
        uint32_t vfetch_index = i * 32 + j;
        uint64_t vfetch_bit = uint64_t(1) << (vfetch_index & 63);
        if (vertex_buffers_in_sync_[vfetch_index >> 6] & vfetch_bit) {
@@ -1581,7 +4131,7 @@ index 001f36b..af3be6e 100644
          continue;
        }
        xenos::xe_gpu_vertex_fetch_t vfetch_constant = regs.GetVertexFetch(vfetch_index);
-@@ -4012,6 +4024,10 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -4012,6 +4037,10 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
        VertexBufferState& state = vertex_buffer_states_[vfetch_index];
        if (state.address == vfetch_constant.address && state.size == vfetch_constant.size) {
          vertex_buffers_in_sync_[vfetch_index >> 6] |= vfetch_bit;
@@ -1592,7 +4142,7 @@ index 001f36b..af3be6e 100644
          continue;
        }
        if (!shared_memory_->RequestRange(vfetch_constant.address << 2, vfetch_constant.size << 2)) {
-@@ -4023,6 +4039,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -4023,6 +4052,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
        }
        state.address = vfetch_constant.address;
        state.size = vfetch_constant.size;
@@ -1601,7 +4151,310 @@ index 001f36b..af3be6e 100644
        vertex_buffers_in_sync_[vfetch_index >> 6] |= vfetch_bit;
      }
    }
-@@ -5385,6 +5403,8 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+@@ -4173,11 +4204,13 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       memexport_total_size += memexport_range.size_bytes;
+     }
+     if (memexport_total_size) {
++      const auto readback_start = std::chrono::steady_clock::now();
+       if (REXCVAR_GET(readback_memexport_fast)) {
+         IssueDraw_MemexportReadbackFastPath(memexport_total_size);
+       } else {
+         IssueDraw_MemexportReadbackFullPath(memexport_total_size);
+       }
++      NoteMemexportReadback(readback_start, memexport_total_size);
+     }
+   }
+ 
+@@ -4208,8 +4241,11 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_
+   shared_memory_->Use(VulkanSharedMemory::Usage::kRead);
+   SubmitBarriers(true);
+ 
++  memexport_guest_before_.resize(total_size);
+   uint32_t readback_offset = 0;
+   for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
++    ReadMemexportGuestBytes(memexport_range.base_address_dwords << 2, memexport_range.size_bytes,
++                            memexport_guest_before_.data() + readback_offset);
+     VkBufferCopy readback_region = {};
+     readback_region.srcOffset = memexport_range.base_address_dwords << 2;
+     readback_region.dstOffset = readback_offset;
+@@ -4250,10 +4286,12 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_
+   }
+ 
+   const uint8_t* readback_bytes = reinterpret_cast<const uint8_t*>(readback_mapping);
++  const uint8_t* guest_before = memexport_guest_before_.data();
+   for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
+-    std::memcpy(memory_->TranslatePhysical(memexport_range.base_address_dwords << 2),
+-                readback_bytes, memexport_range.size_bytes);
++    WriteMemexportReadbackToGuest(memexport_range.base_address_dwords << 2, readback_bytes,
++                                  guest_before, memexport_range.size_bytes);
+     readback_bytes += memexport_range.size_bytes;
++    guest_before += memexport_range.size_bytes;
+   }
+   dfn.vkUnmapMemory(device, readback_memory);
+   dfn.vkDestroyBuffer(device, readback_buffer, nullptr);
+@@ -4333,8 +4371,11 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_
+   shared_memory_->Use(VulkanSharedMemory::Usage::kRead);
+   SubmitBarriers(true);
+ 
++  readback.guest_before[write_index].resize(total_size);
+   uint32_t readback_offset = 0;
+   for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
++    ReadMemexportGuestBytes(memexport_range.base_address_dwords << 2, memexport_range.size_bytes,
++                            readback.guest_before[write_index].data() + readback_offset);
+     VkBufferCopy readback_region = {};
+     readback_region.srcOffset = memexport_range.base_address_dwords << 2;
+     readback_region.dstOffset = readback_offset;
+@@ -4371,10 +4412,16 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_
+ 
+   const uint8_t* readback_bytes =
+       reinterpret_cast<const uint8_t*>(readback.mapped_data[read_index]);
++  const uint8_t* guest_before = readback.guest_before[read_index].size() >= total_size
++                                    ? readback.guest_before[read_index].data()
++                                    : nullptr;
+   for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
+-    std::memcpy(memory_->TranslatePhysical(memexport_range.base_address_dwords << 2),
+-                readback_bytes, memexport_range.size_bytes);
++    WriteMemexportReadbackToGuest(memexport_range.base_address_dwords << 2, readback_bytes,
++                                  guest_before, memexport_range.size_bytes);
+     readback_bytes += memexport_range.size_bytes;
++    if (guest_before) {
++      guest_before += memexport_range.size_bytes;
++    }
+   }
+ 
+   readback.current_index = read_index;
+@@ -4391,15 +4438,227 @@ bool VulkanCommandProcessor::IssueCopy() {
+   }
+ 
+   ReadbackResolveMode readback_mode = GetReadbackResolveMode(REXCVAR_GET(vulkan_readback_resolve));
+-  if (readback_mode == ReadbackResolveMode::kDisabled) {
++  if (readback_mode == ReadbackResolveMode::kDisabled ||
++      readback_mode == ReadbackResolveMode::kOnDemand) {
+     uint32_t written_address, written_length;
+-    return render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_,
+-                                         written_address, written_length);
++    if (!render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_, written_address,
++                                       written_length)) {
++      return false;
++    }
++    if (readback_mode == ReadbackResolveMode::kOnDemand && written_length) {
++      TrackOnDemandResolve(written_address, written_length,
++                           texture_cache_->IsDrawResolutionScaled());
++    }
++    return true;
+   }
+ 
+   return IssueCopy_ReadbackResolvePath();
+ }
+ 
++const uint8_t* VulkanCommandProcessor::ReadBackGpuRange(uint32_t address, uint32_t length,
++                                                        uint32_t pixel_size_log2, bool scaled) {
++  if (!BeginSubmission(false)) {
++    return nullptr;
++  }
++  const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++
++  uint32_t size = AlignReadbackBufferSize(length);
++  if (size > ondemand_readback_buffer_size_) {
++    // The previous readback was awaited, so the old buffer is idle.
++    DestroyOnDemandReadbackBuffer();
++    if (!ui::vulkan::util::CreateDedicatedAllocationBuffer(
++            vulkan_device, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
++            ui::vulkan::util::MemoryPurpose::kReadback, ondemand_readback_buffer_,
++            ondemand_readback_memory_)) {
++      REXGPU_ERROR("Failed to create a {} MB Vulkan on-demand resolve readback buffer",
++                   size >> 20);
++      return nullptr;
++    }
++    if (dfn.vkMapMemory(device, ondemand_readback_memory_, 0, VK_WHOLE_SIZE, 0,
++                        &ondemand_readback_mapping_) != VK_SUCCESS) {
++      REXGPU_ERROR("Failed to map the Vulkan on-demand resolve readback buffer");
++      ondemand_readback_mapping_ = nullptr;
++      DestroyOnDemandReadbackBuffer();
++      return nullptr;
++    }
++    ondemand_readback_buffer_size_ = size;
++  }
++
++  if (scaled) {
++    if (!resolve_downscale_pipeline_ || !resolve_downscale_pipeline_layout_) {
++      return nullptr;
++    }
++    uint32_t tile_count = length >> (10 + pixel_size_log2);
++    uint64_t scaled_start = 0, scaled_length = 0;
++    if (!tile_count ||
++        !texture_cache_->GetScaledResolveRange(address, length, 0, scaled_start, scaled_length) ||
++        !scaled_length) {
++      return nullptr;
++    }
++    VkBuffer scaled_resolve_buffer = texture_cache_->scaled_resolve_buffer();
++    if (scaled_resolve_buffer == VK_NULL_HANDLE || scaled_start > uint64_t(UINT32_MAX)) {
++      return nullptr;
++    }
++
++    if (size > resolve_downscale_buffer_size_) {
++      VkBuffer new_buffer = VK_NULL_HANDLE;
++      VkDeviceMemory new_memory = VK_NULL_HANDLE;
++      if (!ui::vulkan::util::CreateDedicatedAllocationBuffer(
++              vulkan_device, size,
++              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
++              ui::vulkan::util::MemoryPurpose::kDeviceLocal, new_buffer, new_memory)) {
++        REXGPU_ERROR("Failed to create a {} MB Vulkan resolve downscale buffer", size >> 20);
++        return nullptr;
++      }
++      if (resolve_downscale_buffer_ != VK_NULL_HANDLE ||
++          resolve_downscale_buffer_memory_ != VK_NULL_HANDLE) {
++        if (!AwaitAllQueueOperationsCompletion()) {
++          dfn.vkDestroyBuffer(device, new_buffer, nullptr);
++          dfn.vkFreeMemory(device, new_memory, nullptr);
++          return nullptr;
++        }
++        if (resolve_downscale_buffer_ != VK_NULL_HANDLE) {
++          dfn.vkDestroyBuffer(device, resolve_downscale_buffer_, nullptr);
++        }
++        if (resolve_downscale_buffer_memory_ != VK_NULL_HANDLE) {
++          dfn.vkFreeMemory(device, resolve_downscale_buffer_memory_, nullptr);
++        }
++        // Awaiting ended the submission.
++        if (!BeginSubmission(false)) {
++          dfn.vkDestroyBuffer(device, new_buffer, nullptr);
++          dfn.vkFreeMemory(device, new_memory, nullptr);
++          resolve_downscale_buffer_ = VK_NULL_HANDLE;
++          resolve_downscale_buffer_memory_ = VK_NULL_HANDLE;
++          resolve_downscale_buffer_size_ = 0;
++          return nullptr;
++        }
++      }
++      resolve_downscale_buffer_ = new_buffer;
++      resolve_downscale_buffer_memory_ = new_memory;
++      resolve_downscale_buffer_size_ = size;
++    }
++
++    VkDescriptorSet descriptor_set = AllocateSingleTransientDescriptor(
++        SingleTransientDescriptorLayout::kStorageBufferPairCompute);
++    if (descriptor_set == VK_NULL_HANDLE) {
++      return nullptr;
++    }
++    VkDescriptorBufferInfo buffer_infos[2] = {};
++    buffer_infos[0].buffer = scaled_resolve_buffer;
++    buffer_infos[0].offset = 0;
++    buffer_infos[0].range = VK_WHOLE_SIZE;
++    buffer_infos[1].buffer = resolve_downscale_buffer_;
++    buffer_infos[1].offset = 0;
++    buffer_infos[1].range = length;
++    VkWriteDescriptorSet descriptor_writes[2] = {};
++    for (uint32_t i = 0; i < 2; ++i) {
++      descriptor_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++      descriptor_writes[i].dstSet = descriptor_set;
++      descriptor_writes[i].dstBinding = i;
++      descriptor_writes[i].descriptorCount = 1;
++      descriptor_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
++      descriptor_writes[i].pBufferInfo = &buffer_infos[i];
++    }
++    dfn.vkUpdateDescriptorSets(device, 2, descriptor_writes, 0, nullptr);
++
++    texture_cache_->UseScaledResolveBufferForRead();
++    SubmitBarriers(true);
++
++    VkBufferMemoryBarrier pre_barrier = {};
++    pre_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
++    pre_barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
++    pre_barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
++    pre_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++    pre_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++    pre_barrier.buffer = resolve_downscale_buffer_;
++    pre_barrier.offset = 0;
++    pre_barrier.size = length;
++    deferred_command_buffer_.CmdVkPipelineBarrier(
++        VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &pre_barrier, 0, nullptr);
++
++    BindExternalComputePipeline(resolve_downscale_pipeline_);
++    ResolveDownscaleConstants constants;
++    constants.scale_x = texture_cache_->draw_resolution_scale_x();
++    constants.scale_y = texture_cache_->draw_resolution_scale_y();
++    constants.pixel_size_log2 = pixel_size_log2;
++    constants.tile_count = tile_count;
++    constants.source_offset_bytes = uint32_t(scaled_start);
++    constants.half_pixel_offset = (REXCVAR_GET(readback_resolve_half_pixel_offset) &&
++                                   (constants.scale_x > 1 || constants.scale_y > 1))
++                                      ? 1u
++                                      : 0u;
++    deferred_command_buffer_.CmdVkPushConstants(resolve_downscale_pipeline_layout_,
++                                                VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
++                                                &constants);
++    deferred_command_buffer_.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE,
++                                                     resolve_downscale_pipeline_layout_, 0, 1,
++                                                     &descriptor_set, 0, nullptr);
++    deferred_command_buffer_.CmdVkDispatch(tile_count, 1, 1);
++
++    VkBufferMemoryBarrier downscale_barrier = {};
++    downscale_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
++    downscale_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
++    downscale_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
++    downscale_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++    downscale_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++    downscale_barrier.buffer = resolve_downscale_buffer_;
++    downscale_barrier.offset = 0;
++    downscale_barrier.size = length;
++    deferred_command_buffer_.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                                                  VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1,
++                                                  &downscale_barrier, 0, nullptr);
++
++    VkBufferCopy readback_region = {};
++    readback_region.size = length;
++    deferred_command_buffer_.CmdVkCopyBuffer(resolve_downscale_buffer_, ondemand_readback_buffer_,
++                                             1, &readback_region);
++  } else {
++    shared_memory_->Use(VulkanSharedMemory::Usage::kRead);
++    SubmitBarriers(true);
++    VkBufferCopy readback_region = {};
++    readback_region.srcOffset = address;
++    readback_region.size = length;
++    deferred_command_buffer_.CmdVkCopyBuffer(shared_memory_->buffer(), ondemand_readback_buffer_,
++                                             1, &readback_region);
++  }
++
++  PushBufferMemoryBarrier(ondemand_readback_buffer_, 0, length, VK_PIPELINE_STAGE_TRANSFER_BIT,
++                          VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
++                          VK_ACCESS_HOST_READ_BIT);
++  if (!AwaitAllQueueOperationsCompletion()) {
++    return nullptr;
++  }
++  VkMappedMemoryRange readback_memory_range = {};
++  readback_memory_range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
++  readback_memory_range.memory = ondemand_readback_memory_;
++  readback_memory_range.offset = 0;
++  readback_memory_range.size = VK_WHOLE_SIZE;
++  dfn.vkInvalidateMappedMemoryRanges(device, 1, &readback_memory_range);
++  return static_cast<const uint8_t*>(ondemand_readback_mapping_);
++}
++
++void VulkanCommandProcessor::DestroyOnDemandReadbackBuffer() {
++  const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  if (ondemand_readback_mapping_ && ondemand_readback_memory_ != VK_NULL_HANDLE) {
++    dfn.vkUnmapMemory(device, ondemand_readback_memory_);
++  }
++  ondemand_readback_mapping_ = nullptr;
++  if (ondemand_readback_buffer_ != VK_NULL_HANDLE) {
++    dfn.vkDestroyBuffer(device, ondemand_readback_buffer_, nullptr);
++    ondemand_readback_buffer_ = VK_NULL_HANDLE;
++  }
++  if (ondemand_readback_memory_ != VK_NULL_HANDLE) {
++    dfn.vkFreeMemory(device, ondemand_readback_memory_, nullptr);
++    ondemand_readback_memory_ = VK_NULL_HANDLE;
++  }
++  ondemand_readback_buffer_size_ = 0;
++}
++
+ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+   const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -5385,6 +5644,8 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
        REXGPU_ERROR("Failed to begin a Vulkan command buffer");
        return false;
      }
@@ -2214,7 +5067,7 @@ index bd5de65..f1aee1a 100644
          result = X_STATUS_UNSUCCESSFUL;
        }
 diff --git a/src/system/function_dispatcher.cpp b/src/system/function_dispatcher.cpp
-index bd43109..7d203ac 100644
+index bd43109..2bb1ca4 100644
 --- a/src/system/function_dispatcher.cpp
 +++ b/src/system/function_dispatcher.cpp
 @@ -35,8 +35,12 @@ FunctionDispatcher* GetBoundFunctionDispatcher() {
@@ -2241,6 +5094,34 @@ index bd43109..7d203ac 100644
    // Rebind the active guest thread for cross-module callbacks.
    ThreadState::Bind(thread_state);
  
+@@ -139,6 +145,19 @@ uint64_t FunctionDispatcher::ExecuteTrap(ThreadState* thread_state, uint32_t add
+   return result;
+ }
+ 
++namespace {
++thread_local uint32_t interrupt_depth_ = 0;
++
++struct InterruptScope {
++  InterruptScope() { ++interrupt_depth_; }
++  ~InterruptScope() { --interrupt_depth_; }
++};
++}  // namespace
++
++bool FunctionDispatcher::IsInInterrupt() {
++  return interrupt_depth_ != 0;
++}
++
+ uint64_t FunctionDispatcher::ExecuteInterrupt(ThreadState* thread_state, uint32_t address,
+                                               uint64_t args[], size_t arg_count) {
+   SCOPE_profile_cpu_f("cpu");
+@@ -146,6 +165,7 @@ uint64_t FunctionDispatcher::ExecuteInterrupt(ThreadState* thread_state, uint32_
+ 
+   // Hold the global lock during interrupt dispatch.
+   auto global_lock = global_critical_region_.Acquire();
++  InterruptScope interrupt_scope;
+ 
+   auto* ctx = thread_state->context();
+   assert_true(arg_count <= 5);
 diff --git a/src/system/runtime.cpp b/src/system/runtime.cpp
 index c10694c..a7e4d7e 100644
 --- a/src/system/runtime.cpp
@@ -2436,11 +5317,140 @@ index d0c7bfd..49b2e5b 100644
    std::error_code ec;
    auto dir_removed = std::filesystem::remove_all(package_path, ec);
    if (ec ||
+diff --git a/src/system/xfile.cpp b/src/system/xfile.cpp
+index 4179e8b..87728b5 100644
+--- a/src/system/xfile.cpp
++++ b/src/system/xfile.cpp
+@@ -13,6 +13,7 @@
+ #include <rex/logging.h>
+ #include <rex/math.h>
+ #include <rex/memory.h>
++#include <rex/memory/utils.h>
+ #include <rex/stream.h>
+ #include <rex/system/kernel_state.h>
+ #include <rex/system/xevent.h>
+@@ -155,6 +156,22 @@ X_STATUS XFile::ReadInternal(uint32_t buffer_guest_address, uint32_t buffer_leng
+                                         memory::PageAccess::kReadWrite) {
+           result = X_STATUS_ACCESS_VIOLATION;
+         } else {
++          if (buffer_physical_heap) {
++            // The read makes the resolves still hidden in the buffer outdated.
++            // Drop their watches in every view before reading, or an
++            // on-demand readback could land on the new file data. Pages the
++            // buffer covers only partly get their resolve data first, for the
++            // bytes around the buffer.
++            const uint32_t page_size = uint32_t(rex::memory::page_size());
++            if (buffer_guest_address & (page_size - 1)) {
++              memory()->ProvidePhysicalMemoryData(buffer_guest_address, 1);
++            }
++            if ((buffer_guest_high_address + 1) & (page_size - 1)) {
++              memory()->ProvidePhysicalMemoryData(buffer_guest_high_address, 1);
++            }
++            memory()->DisablePhysicalMemoryReadWatch(
++                buffer_physical_heap->GetPhysicalAddress(buffer_guest_address), buffer_length);
++          }
+           result = file_->ReadSync(
+               std::span<uint8_t>(
+                   buffer_physical_heap
+@@ -262,6 +279,9 @@ X_STATUS XFile::Write(uint32_t buffer_guest_address, uint32_t buffer_length, uin
+     byte_offset = position_;
+   }
+ 
++  // The OS reads the buffer without our fault handling.
++  memory()->ProvidePhysicalMemoryData(buffer_guest_address, buffer_length);
++
+   size_t bytes_written = 0;
+   X_STATUS result = file_->WriteSync(
+       std::span<const uint8_t>(memory()->TranslateVirtual(buffer_guest_address), buffer_length),
 diff --git a/src/system/xmemory.cpp b/src/system/xmemory.cpp
-index 76cc877..6481bcd 100644
+index 76cc877..dc5482b 100644
 --- a/src/system/xmemory.cpp
 +++ b/src/system/xmemory.cpp
-@@ -1901,29 +1901,33 @@ bool PhysicalHeap::Alloc(uint32_t size, uint32_t alignment, uint32_t allocation_
+@@ -556,6 +556,21 @@ bool Memory::AccessViolationCallback(std::unique_lock<std::recursive_mutex> glob
+   // Will be rounded to physical page boundaries internally, so just pass 1 as
+   // the length - guranteed not to cross page boundaries also.
+   auto physical_heap = static_cast<PhysicalHeap*>(heap);
++
++  // A read-watched page holds stale data until the provider fills it - both
++  // reads and writes (a write must not land on stale neighbouring bytes) wait.
++  if (physical_heap->IsReadWatched(virtual_address)) {
++    uint32_t physical_address = physical_heap->GetPhysicalAddress(virtual_address);
++    if (physical_memory_data_provider_) {
++      return physical_memory_data_provider_(physical_memory_data_provider_context_,
++                                            physical_address,
++                                            std::move(global_lock_locked_once));
++    }
++    // No provider anymore - give the page back as it is.
++    DisablePhysicalMemoryReadWatch(physical_address, 1);
++    return true;
++  }
++
+   if (physical_heap->TriggerCallbacks(std::move(global_lock_locked_once), virtual_address, 1,
+                                       is_write, false)) {
+     return true;
+@@ -679,6 +694,61 @@ void Memory::UnregisterPhysicalMemoryInvalidationCallback(void* callback_handle)
+   delete entry;
+ }
+ 
++void Memory::SetPhysicalMemoryDataProvider(PhysicalMemoryDataProvider provider, void* context) {
++  auto lock = global_critical_region_.Acquire();
++  physical_memory_data_provider_ = provider;
++  physical_memory_data_provider_context_ = context;
++}
++
++bool Memory::EnablePhysicalMemoryReadWatch(uint32_t physical_address, uint32_t length) {
++  auto lock = global_critical_region_.Acquire();
++  bool watched = heaps_.vA0000000.EnableReadWatch(physical_address, length);
++  watched |= heaps_.vC0000000.EnableReadWatch(physical_address, length);
++  watched |= heaps_.vE0000000.EnableReadWatch(physical_address, length);
++  return watched;
++}
++
++void Memory::DisablePhysicalMemoryReadWatch(uint32_t physical_address, uint32_t length) {
++  auto lock = global_critical_region_.Acquire();
++  heaps_.vA0000000.DisableReadWatch(physical_address, length);
++  heaps_.vC0000000.DisableReadWatch(physical_address, length);
++  heaps_.vE0000000.DisableReadWatch(physical_address, length);
++}
++
++bool Memory::IsPhysicalMemoryReadWatched(uint32_t physical_address) const {
++  return heaps_.vA0000000.IsPhysicalPageReadWatched(physical_address) ||
++         heaps_.vC0000000.IsPhysicalPageReadWatched(physical_address) ||
++         heaps_.vE0000000.IsPhysicalPageReadWatched(physical_address);
++}
++
++void Memory::ProvidePhysicalMemoryData(uint32_t virtual_address, uint32_t length) {
++  if (!length) {
++    return;
++  }
++  BaseHeap* heap = LookupHeap(virtual_address);
++  if (!heap || heap->heap_type() != memory::HeapType::kGuestPhysical) {
++    return;
++  }
++  auto physical_heap = static_cast<PhysicalHeap*>(heap);
++  const uint32_t page_size = system_page_size_;
++  uint64_t end = uint64_t(virtual_address) + length;
++  for (uint64_t address = virtual_address & ~(page_size - 1); address < end;
++       address += page_size) {
++    auto lock = global_critical_region_.Acquire();
++    // Each call fills a whole resolve, usually covering the following pages.
++    while (physical_heap->IsReadWatched(uint32_t(address))) {
++      uint32_t physical_address = physical_heap->GetPhysicalAddress(uint32_t(address));
++      if (!physical_memory_data_provider_) {
++        DisablePhysicalMemoryReadWatch(physical_address, 1);
++        break;
++      }
++      physical_memory_data_provider_(physical_memory_data_provider_context_, physical_address,
++                                     std::move(lock));
++      lock = global_critical_region_.Acquire();
++    }
++  }
++}
++
+ void Memory::EnablePhysicalMemoryAccessCallbacks(uint32_t physical_address, uint32_t length,
+                                                  bool enable_invalidation_notifications,
+                                                  bool enable_data_providers) {
+@@ -1901,29 +1971,33 @@ bool PhysicalHeap::Alloc(uint32_t size, uint32_t alignment, uint32_t allocation_
    size = rex::round_up(size, page_size_);
    alignment = rex::round_up(alignment, page_size_);
  
@@ -2494,7 +5504,7 @@ index 76cc877..6481bcd 100644
    *out_address = address;
    return true;
  }
-@@ -1934,30 +1938,33 @@ bool PhysicalHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t ali
+@@ -1934,30 +2008,33 @@ bool PhysicalHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t ali
    size = rex::round_up(size, page_size_);
    alignment = rex::round_up(alignment, page_size_);
  
@@ -2549,7 +5559,7 @@ index 76cc877..6481bcd 100644
    return true;
  }
  
-@@ -1970,31 +1977,35 @@ bool PhysicalHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint3
+@@ -1970,31 +2047,35 @@ bool PhysicalHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint3
    size = rex::round_up(size, page_size_);
    alignment = rex::round_up(alignment, page_size_);
  
@@ -2607,7 +5617,7 @@ index 76cc877..6481bcd 100644
    *out_address = address;
    return true;
  }
-@@ -2004,6 +2015,23 @@ bool PhysicalHeap::AllocSystemHeap(uint32_t size, uint32_t alignment, uint32_t a
+@@ -2004,6 +2085,28 @@ bool PhysicalHeap::AllocSystemHeap(uint32_t size, uint32_t alignment, uint32_t a
    return Alloc(size, alignment, allocation_type, protect, top_down, out_address);
  }
  
@@ -2626,11 +5636,216 @@ index 76cc877..6481bcd 100644
 +  for (auto invalidation_callback : memory_->physical_memory_invalidation_callbacks_) {
 +    invalidation_callback->first(invalidation_callback->second, physical_address, size, true);
 +  }
++  // Allocation set the guest's protection, which replaced any read watch.
++  uint32_t system_page_first, system_page_last;
++  if (GetSystemPageRange(physical_address, size, system_page_first, system_page_last)) {
++    ClearReadWatches(system_page_first, system_page_last, false);
++  }
 +}
 +
  bool PhysicalHeap::Decommit(uint32_t address, uint32_t size) {
    auto global_lock = global_critical_region_.Acquire();
  
+@@ -2052,6 +2155,13 @@ bool PhysicalHeap::Protect(uint32_t address, uint32_t size, uint32_t protect,
+   // marking some range as immutable, for instance.
+   if (protect & memory::kMemoryProtectWrite) {
+     TriggerCallbacks(std::move(global_lock), address, size, true, true, false);
++  } else {
++    // The new protection replaces any read watch.
++    uint32_t system_page_first, system_page_last;
++    if (GetSystemPageRange(GetPhysicalAddress(address), size, system_page_first,
++                           system_page_last)) {
++      ClearReadWatches(system_page_first, system_page_last, false);
++    }
+   }
+ 
+   if (!parent_heap_->Protect(GetPhysicalAddress(address), size, protect, old_protect)) {
+@@ -2145,10 +2255,8 @@ void PhysicalHeap::EnableAccessCallbacks(uint32_t physical_address, uint32_t len
+       if (enable_invalidation_notifications) {
+         if (current_page_access != rex::memory::PageAccess::kReadOnly &&
+             (page_flags_block.notify_on_invalidation & page_flags_bit) == 0) {
+-          // TODO(Triang3l): Check if data providers are already enabled.
+-          // If data providers are already enabled for the page, it has even
+-          // stricter protection.
+-          protect_system_page = true;
++          // A read-watched page already has stricter protection.
++          protect_system_page = (page_flags_block.notify_on_read & page_flags_bit) == 0;
+           page_flags_block.notify_on_invalidation |= page_flags_bit;
+         }
+       }
+@@ -2205,6 +2313,10 @@ bool PhysicalHeap::TriggerCallbacks(std::unique_lock<std::recursive_mutex> globa
+   uint32_t block_index_first = system_page_first >> 6;
+   uint32_t block_index_last = system_page_last >> 6;
+ 
++  // The range was written outside the guest views (a file read) or is being
++  // released or reprotected - the provider's data for it is outdated.
++  ClearReadWatches(system_page_first, system_page_last, true);
++
+   // Check if watching any page, whether need to call the callback at all.
+   bool any_watched = false;
+   for (uint32_t i = block_index_first; i <= block_index_last; ++i) {
+@@ -2283,9 +2395,11 @@ bool PhysicalHeap::TriggerCallbacks(std::unique_lock<std::recursive_mutex> globa
+     uint8_t* protect_base = membase_ + heap_base_;
+     uint32_t unprotect_system_page_first = UINT32_MAX;
+     for (uint32_t i = system_page_first; i <= system_page_last; ++i) {
+-      // Check if need to allow writing to this page.
++      // Check if need to allow writing to this page. Read-watched pages around
++      // the requested range stay hidden.
+       bool unprotect_page =
+-          (system_page_flags_[i >> 6].notify_on_invalidation & (uint64_t(1) << (i & 63))) != 0;
++          (system_page_flags_[i >> 6].notify_on_invalidation & (uint64_t(1) << (i & 63))) != 0 &&
++          (system_page_flags_[i >> 6].notify_on_read & (uint64_t(1) << (i & 63))) == 0;
+       if (unprotect_page) {
+         uint32_t guest_page_number =
+             rex::sat_sub(i * system_page_size_, host_address_offset()) >> page_size_shift_;
+@@ -2347,6 +2461,147 @@ bool PhysicalHeap::IsHostPageWriteWatched(uint32_t host_page_number) const {
+           (uint64_t(1) << (host_page_number & 63))) != 0;
+ }
+ 
++bool PhysicalHeap::GetSystemPageRange(uint32_t physical_address, uint32_t length,
++                                      uint32_t& first, uint32_t& last) const {
++  // Same mapping as EnableAccessCallbacks.
++  uint32_t physical_address_offset = GetPhysicalAddress(heap_base_);
++  if (physical_address < physical_address_offset) {
++    if (physical_address_offset - physical_address >= length) {
++      return false;
++    }
++    length -= physical_address_offset - physical_address;
++    physical_address = physical_address_offset;
++  }
++  uint32_t heap_relative_address = physical_address - physical_address_offset;
++  if (heap_relative_address >= heap_size_) {
++    return false;
++  }
++  length = std::min(length, heap_size_ - heap_relative_address);
++  if (!length) {
++    return false;
++  }
++  first = (heap_relative_address + host_address_offset()) / system_page_size_;
++  last = std::min((heap_relative_address + length - 1 + host_address_offset()) / system_page_size_,
++                  system_page_count_ - 1);
++  return first <= last;
++}
++
++rex::memory::PageAccess PhysicalHeap::GetUnreadWatchedAccess(uint32_t system_page) const {
++  uint32_t guest_page_number =
++      rex::sat_sub(system_page * system_page_size_, host_address_offset()) >> page_size_shift_;
++  if (guest_page_number >= page_table_.size()) {
++    return rex::memory::PageAccess::kNoAccess;
++  }
++  rex::memory::PageAccess access = ToPageAccess(page_table_[guest_page_number].current_protect);
++  if (access == rex::memory::PageAccess::kReadWrite &&
++      (system_page_flags_[system_page >> 6].notify_on_invalidation &
++       (uint64_t(1) << (system_page & 63)))) {
++    access = rex::memory::PageAccess::kReadOnly;
++  }
++  return access;
++}
++
++bool PhysicalHeap::EnableReadWatch(uint32_t physical_address, uint32_t length) {
++  uint32_t system_page_first, system_page_last;
++  if (!GetSystemPageRange(physical_address, length, system_page_first, system_page_last)) {
++    return false;
++  }
++  uint8_t* protect_base = membase_ + heap_base_;
++  bool any_watched = false;
++  uint32_t protect_first = UINT32_MAX;
++  for (uint32_t i = system_page_first; i <= system_page_last + 1; ++i) {
++    bool protect_page = false;
++    if (i <= system_page_last) {
++      uint64_t& flags = system_page_flags_[i >> 6].notify_on_read;
++      uint64_t bit = uint64_t(1) << (i & 63);
++      if (flags & bit) {
++        any_watched = true;
++      } else if (GetUnreadWatchedAccess(i) != rex::memory::PageAccess::kNoAccess) {
++        // Inaccessible pages need real access violations - not watched.
++        flags |= bit;
++        any_watched = true;
++        protect_page = true;
++      }
++    }
++    if (protect_page) {
++      if (protect_first == UINT32_MAX) {
++        protect_first = i;
++      }
++    } else if (protect_first != UINT32_MAX) {
++      rex::memory::Protect(protect_base + size_t(protect_first) * system_page_size_,
++                           size_t(i - protect_first) * system_page_size_,
++                           rex::memory::PageAccess::kNoAccess);
++      protect_first = UINT32_MAX;
++    }
++  }
++  return any_watched;
++}
++
++void PhysicalHeap::DisableReadWatch(uint32_t physical_address, uint32_t length) {
++  uint32_t system_page_first, system_page_last;
++  if (GetSystemPageRange(physical_address, length, system_page_first, system_page_last)) {
++    ClearReadWatches(system_page_first, system_page_last, true);
++  }
++}
++
++void PhysicalHeap::ClearReadWatches(uint32_t system_page_first, uint32_t system_page_last,
++                                    bool restore_protection) {
++  // Runs of pages getting the same access share one Protect call.
++  uint8_t* protect_base = membase_ + heap_base_;
++  uint32_t run_first = UINT32_MAX;
++  rex::memory::PageAccess run_access = rex::memory::PageAccess::kNoAccess;
++  auto flush_run = [&](uint32_t run_end) {
++    if (run_first != UINT32_MAX) {
++      rex::memory::Protect(protect_base + size_t(run_first) * system_page_size_,
++                           size_t(run_end - run_first) * system_page_size_, run_access);
++      run_first = UINT32_MAX;
++    }
++  };
++  for (uint32_t i = system_page_first; i <= system_page_last; ++i) {
++    uint64_t& flags = system_page_flags_[i >> 6].notify_on_read;
++    uint64_t bit = uint64_t(1) << (i & 63);
++    if (!(flags & bit)) {
++      flush_run(i);
++      continue;
++    }
++    flags &= ~bit;
++    if (!restore_protection) {
++      continue;
++    }
++    rex::memory::PageAccess access = GetUnreadWatchedAccess(i);
++    if (run_first != UINT32_MAX && access != run_access) {
++      flush_run(i);
++    }
++    if (run_first == UINT32_MAX) {
++      run_first = i;
++      run_access = access;
++    }
++  }
++  flush_run(system_page_last + 1);
++}
++
++bool PhysicalHeap::IsReadWatched(uint32_t virtual_address) const {
++  if (virtual_address < heap_base_ || virtual_address - heap_base_ >= heap_size_) {
++    return false;
++  }
++  uint32_t system_page =
++      (virtual_address - heap_base_ + host_address_offset()) / system_page_size_;
++  if (system_page >= system_page_count_) {
++    return false;
++  }
++  return (system_page_flags_[system_page >> 6].notify_on_read &
++          (uint64_t(1) << (system_page & 63))) != 0;
++}
++
++bool PhysicalHeap::IsPhysicalPageReadWatched(uint32_t physical_address) const {
++  uint32_t system_page_first, system_page_last;
++  if (!GetSystemPageRange(physical_address, 1, system_page_first, system_page_last)) {
++    return false;
++  }
++  return (system_page_flags_[system_page_first >> 6].notify_on_read &
++          (uint64_t(1) << (system_page_first & 63))) != 0;
++}
++
+ uint32_t PhysicalHeap::GetPhysicalAddress(uint32_t address) const {
+   assert_true(address >= heap_base_);
+   address -= heap_base_;
 diff --git a/src/ui/d3d12/d3d12_presenter.cpp b/src/ui/d3d12/d3d12_presenter.cpp
 index 306118e..dca5213 100644
 --- a/src/ui/d3d12/d3d12_presenter.cpp
