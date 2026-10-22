@@ -137,9 +137,10 @@ public class Dlss5Tab : ILauncherTab
         var missing = Dlss5.Missing();
         status.Text = !Paths.IsInstalled ? "ufc3.exe is not next to this launcher."
             : !Dlss5.ScriptsPresent ? "DLSS 5 add-on: not installed. Download it here, or install the add-on zip from the release page."
-            : missing.Count > 0 ? $"DLSS 5: not set up ({missing.Count} files missing). Press \"Set up DLSS 5...\" and pick the folder with the DLSS 5 files."
+            : missing.Count > 0 ? $"DLSS 5: not set up ({missing.Count} files missing). Press \"Set up DLSS 5...\" and pick the folder with your " +
+                "DLSS 5 downloads (or this dlss5 folder): files are found by name and put in place. Missing in dlss5\\:" + Environment.NewLine +
+                string.Join(Environment.NewLine, missing.Select(m => $"  {m}  ({Dlss5.Source(m)})"))
             : "DLSS 5: set up and ready.";
-        addonRow.Visible = !Dlss5.ScriptsPresent;
         addonRow.Visible = !Dlss5.ScriptsPresent;
         setupBtn.Text = missing.Count == 0 ? "Set up again..." : "Set up DLSS 5...";
         setupBtn.Enabled = Paths.IsInstalled && Dlss5.ScriptsPresent;
@@ -178,8 +179,8 @@ public class Dlss5Tab : ILauncherTab
     {
         using var dlg = new FolderBrowserDialog
         {
-            Description = "Folder with the DLSS 5 files (ReShade64.dll, dlss5-feed-helper.addon64, host64\\ with nvngx_dlssnr.dll, shaders\\): " +
-                "the staged UFC-DLSS5 test, or a Rumble Roses dlss5 folder",
+            Description = "Folder with your DLSS 5 downloads, unzipped, any layout (ReShade, DLSS5-Feeder, OptiScaler-NR, nvngx dlls, " +
+                "LumeniteFX, reshade-shaders), or this dlss5 folder, or a Rumble Roses dlss5 folder",
             UseDescriptionForTitle = true,
             InitialDirectory = Directory.Exists(Dlss5.DefaultSource) ? Dlss5.DefaultSource : Paths.Root,
         };

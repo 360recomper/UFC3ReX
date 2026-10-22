@@ -34,7 +34,7 @@ public static class Dlss5
         @"host64\nvngx_dlss.dll", @"host64\nvngx_dlssnr.dll",
     };
     static readonly string[] StackDirs = { @"host64\OptiScaler", "shaders", "licenses" };
-    static readonly string[] Needed = StackFiles.Concat(new[] { @"shaders\Shaders\DLSS5_Feed.fx", @"shaders\Shaders\lumenite_Kernel.fx" }).ToArray();
+    static readonly string[] Needed = StackFiles.Concat(new[] { @"shaders\Shaders\DLSS5_Feed.fx", @"shaders\Shaders\lumenite_Kernel.fx", @"shaders\Shaders\ReShade.fxh" }).ToArray();
     /// <summary>Shipped with the launcher (package.ps1), not by setup.</summary>
     static readonly string[] Scripts =
     {
@@ -230,10 +230,10 @@ public static class Dlss5
     {
         var log = new List<string>();
         if (GameRunning()) throw new InvalidOperationException("Close the game first.");
-        var stack = FindStack(src) ?? throw new InvalidOperationException(
-            $"No DLSS 5 stack in {src} (looked for ReShade64.dll and host64\\dlss5-feed-host64.exe there, in vk\\ and in dlss5\\).");
+        var stack = FindStack(src);
+        if (stack == null) return SetupLoose(src);
         if (Path.GetFullPath(stack).TrimEnd('\\').Equals(Path.GetFullPath(Dir).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("That is this launcher's own dlss5 folder.");
+            return SetupLoose(stack);
         log.Add("Stack: " + stack);
         foreach (var f in StackFiles)
         {
@@ -262,6 +262,119 @@ public static class Dlss5
         }
         var missing = Missing();
         log.Add(missing.Count == 0 ? "DLSS 5 is set up." : "Still missing: " + string.Join(", ", missing));
+        return log;
+    }
+
+    /// <summary>Where each needed file comes from, for the "missing" message and the README.</summary>
+    public static string Source(string f) => f switch
+    {
+        "ReShade64.dll" or "ReShade64.json" => "ReShade 6.8.0 with add-on support (reshade.me)",
+        @"host64\dxgi.dll" => "a copy of ReShade64.dll, renamed",
+        "dlss5-feed-helper.addon64" or @"host64\dlss5-feed-host64.exe" => "DLSS5-Feeder 1.19.0",
+        @"host64\winmm.dll" => "OptiScaler-NR 0.8.92's OptiScaler.dll, renamed",
+        @"host64\OptiScaler.ini" => "OptiScaler-NR 0.8.92",
+        @"host64\nvngx_dlss.dll" => "NVIDIA DLSS 310.9.16",
+        @"host64\nvngx_dlssnr.dll" => "the DLSS 5 neural rendering runtime 310.9.16 (RTX 20/30/40: the compatibility build)",
+        @"shaders\Shaders\DLSS5_Feed.fx" => @"DLSS5-Feeder, reshade-shaders\Shaders",
+        @"shaders\Shaders\lumenite_Kernel.fx" => "LumeniteFX (github.com/umar-afzaal/LumeniteFX)",
+        @"shaders\Shaders\ReShade.fxh" => "crosire/reshade-shaders, slim branch",
+        _ => "the UFC3 Recomp zip / DLSS 5 add-on zip",
+    };
+
+    /// <summary>
+    /// Setup from a folder of loose downloads (what a player has, not our staged stack): every needed file is found
+    /// by name anywhere under <paramref name="src"/> and put where the stack expects it -- ReShade64.dll also as
+    /// host64\dxgi.dll, OptiScaler.dll (or winmm.dll) as host64\winmm.dll, the OptiScaler\ folder, NGX dlls and
+    /// OptiScaler.ini into host64\, every Shaders\ and Textures\ folder (also reshade-shaders\Shaders) into shaders\.
+    /// Works on the launcher's own dlss5\ folder too, for files dropped in the wrong place. A stock OptiScaler.ini
+    /// gets the settings DLSS 5 needs (DLSS upscaler, neural pass on, working scale 0.5).
+    /// </summary>
+    public static List<string> SetupLoose(string src)
+    {
+        var log = new List<string> { "Loose files in " + src };
+        var files = Directory.EnumerateFiles(src, "*", SearchOption.AllDirectories)
+            .Where(f => !f.EndsWith(".log", StringComparison.OrdinalIgnoreCase)
+                && !f.StartsWith(Templates + "\\", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(f => f.Count(c => c == '\\')).ToList();
+        string? Find(params string[] names) => files.FirstOrDefault(f => names.Any(n => Path.GetFileName(f).Equals(n, StringComparison.OrdinalIgnoreCase)));
+        bool Same(string a, string b) => Path.GetFullPath(a).TrimEnd('\\').Equals(Path.GetFullPath(b).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+        void Place(string? from, string rel)
+        {
+            if (from == null) return;
+            var to = Path.Combine(Dir, rel);
+            if (Same(from, to)) { log.Add("  " + rel + " (already in place)"); return; }
+            Put(from, to);
+            log.Add("  " + rel + "  <- " + Path.GetRelativePath(src, from));
+        }
+
+        var reshade = Find("ReShade64.dll");
+        Place(reshade, "ReShade64.dll");
+        Place(reshade, @"host64\dxgi.dll");
+        Place(Find("ReShade64.json"), "ReShade64.json");
+        Place(Find("dlss5-feed-helper.addon64"), "dlss5-feed-helper.addon64");
+        Place(Find("dlss5-feed-host64.exe"), @"host64\dlss5-feed-host64.exe");
+        Place(Find("winmm.dll", "OptiScaler.dll"), @"host64\winmm.dll");
+        Place(Find("nvngx_dlss.dll"), @"host64\nvngx_dlss.dll");
+        Place(Find("nvngx_dlssnr.dll"), @"host64\nvngx_dlssnr.dll");
+
+        var ini = Find("OptiScaler.ini");
+        var iniTo = Path.Combine(Dir, @"host64\OptiScaler.ini");
+        if (ini != null)
+        {
+            if (!Same(ini, iniTo) && File.Exists(iniTo)) { Put(ini, Dlss5Look.DefaultIniPath); log.Add(@"  host64\OptiScaler.ini (yours kept; new default saved)"); }
+            else
+            {
+                Place(ini, @"host64\OptiScaler.ini");
+                var o = Ini.Load(iniTo);
+                if (o.Get("DlssNr", "WorkingScale") is null or "auto")
+                {
+                    o.Set("Upscalers", "Dx12Upscaler", "dlss");
+                    o.Set("Menu", "Scale", "1.0");
+                    foreach (var (k, v) in new[] { ("Enabled", "true"), ("RunBeforeSR", "true"), ("Passes", "1"), ("TransferStrength", "1.5"), ("WorkingScale", "0.5") })
+                        o.Set("DlssNr", k, v);
+                    o.Save();
+                    log.Add("    set for DLSS 5: Dx12Upscaler=dlss, neural pass on, working scale 0.5");
+                }
+            }
+        }
+
+        // OptiScaler's own folder of upscaler dlls (from its zip), and the shader folders.
+        foreach (var dir in Directory.EnumerateDirectories(src, "*", SearchOption.AllDirectories).ToList())
+        {
+            // Never read from where files are being put (dlss5\shaders is itself named like a source).
+            if (new[] { "shaders", @"host64\OptiScaler" }.Any(d => Same(dir, Path.Combine(Dir, d))
+                || Path.GetFullPath(dir).StartsWith(Path.GetFullPath(Path.Combine(Dir, d)) + "\\", StringComparison.OrdinalIgnoreCase))) continue;
+            var name = Path.GetFileName(dir.TrimEnd('\\'));
+            // OptiScaler's dll folder by name or by its contents (players rename it, e.g. "FOUND OptiScaler").
+            bool opti = name.Equals("OptiScaler", StringComparison.OrdinalIgnoreCase)
+                || File.Exists(Path.Combine(dir, "amd_fidelityfx_loader_dx12.dll")) || File.Exists(Path.Combine(dir, "libxess.dll"));
+            string? rel = opti ? @"host64\OptiScaler"
+                : name.Equals("Shaders", StringComparison.OrdinalIgnoreCase) ? @"shaders\Shaders"
+                : name.Equals("Textures", StringComparison.OrdinalIgnoreCase) ? @"shaders\Textures" : null;
+            if (rel == null) continue;
+            var dest = Path.Combine(Dir, rel);
+            if (Same(dir, dest)) continue;
+            int n = 0;
+            foreach (var f in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+            {
+                if (f.EndsWith(".log", StringComparison.OrdinalIgnoreCase)) continue;
+                // Only the effects DLSS 5 uses: ReShade compiles every .fx it finds (LumeniteFX ships eight).
+                if (rel == @"shaders\Shaders" && f.EndsWith(".fx", StringComparison.OrdinalIgnoreCase)
+                    && !new[] { "DLSS5_Feed.fx", "lumenite_Kernel.fx" }.Contains(Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)) continue;
+                var to = Path.Combine(dest, Path.GetRelativePath(dir, f));
+                if (Same(f, to)) continue;
+                Put(f, to);
+                n++;
+            }
+            if (n > 0) log.Add($"  {rel}\\ ({n} files)  <- {Path.GetRelativePath(src, dir)}");
+        }
+        // Shader includes that may sit loose (ReShade.fxh from reshade-shaders).
+        foreach (var fxh in new[] { "DLSS5_Feed.fx", "ReShade.fxh", "ReShadeUI.fxh", "DrawText.fxh" })
+            if (!File.Exists(Path.Combine(Dir, @"shaders\Shaders", fxh))) Place(Find(fxh), @"shaders\Shaders\" + fxh);
+
+        var missing = Missing();
+        log.Add(missing.Count == 0 ? "DLSS 5 is set up." : "Still missing:");
+        foreach (var m in missing) log.Add($"  {m}  ({Source(m)})");
         return log;
     }
 

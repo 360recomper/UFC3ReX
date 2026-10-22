@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>UFC3 Launcher</AssemblyName>
-    <Version>1.0.3</Version>
+    <Version>1.0.4</Version>
     <RootNamespace>UFC3Launcher</RootNamespace>
     <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

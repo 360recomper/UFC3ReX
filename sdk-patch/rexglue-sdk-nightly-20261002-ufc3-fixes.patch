@@ -357,6 +357,20 @@ index 949d185..ec19afa 100644
    X_RESULT CloseContent(const std::string_view root_name);
    X_RESULT GetContentThumbnail(uint64_t xuid, const XCONTENT_AGGREGATE_DATA& data,
                                 std::vector<uint8_t>* buffer);
+diff --git a/include/rex/system/xmemory.h b/include/rex/system/xmemory.h
+index 0c39a42..7e62710 100644
+--- a/include/rex/system/xmemory.h
++++ b/include/rex/system/xmemory.h
+@@ -331,6 +331,9 @@ class PhysicalHeap : public BaseHeap {
+   // pages are large enough to skip reconciling but whose parent's are not.
+   std::unique_lock<std::recursive_mutex> AcquireHostPageReconcileLock() const override;
+ 
++  // Drops GPU-side copies of a range that has just been allocated.
++  void InvalidateNewAllocation(uint32_t address, uint32_t size);
++
+   VirtualHeap* parent_heap_;
+ 
+   uint32_t system_page_size_;
 diff --git a/include/rex/ui/imgui_dialog.h b/include/rex/ui/imgui_dialog.h
 index a7ab6b3..de55ece 100644
 --- a/include/rex/ui/imgui_dialog.h
@@ -1091,6 +1105,63 @@ index 2c31a0e..1f2aa90 100644
    // Write the pixel parameters to the specified interpolator register
    // (PsParamGen). The negate modified in DXBC flips the sign bit, so it can be
    // used to write the flags.
+diff --git a/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp b/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp
+index 31de175..455a075 100644
+--- a/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp
++++ b/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp
+@@ -1963,6 +1963,52 @@ void DxbcShaderTranslator::ProcessTextureFetchInstruction(
+              dxbc::Src::R(system_temp_result_), dxbc::Src::R(exp_adjust_temp, dxbc::Src::kXXXX));
+     // Release exp_adjust_temp.
+     PopSystemTemp();
++
++    // Integer number format (bit 0 of the fetch constant dword 3) on a fixed-point format: the
++    // hardware returns the raw integer value instead of the normalized one. UFC 3 uses this for a
++    // k_16 lookup table of tiled addresses in its GPU texture compressor.
++    uint32_t integer_scale_temp = PushSystemTemp();
++    // x = format, y = scale being built, z = format comparison result.
++    a_.OpAnd(dxbc::Dest::R(integer_scale_temp, 0b0001),
++             RequestTextureFetchConstantWord(tfetch_index, 1), dxbc::Src::LU(0x3F));
++    a_.OpMov(dxbc::Dest::R(integer_scale_temp, 0b0010), dxbc::Src::LF(1.0f));
++    auto select_scale_for_formats = [&](std::initializer_list<uint32_t> formats, float scale) {
++      bool first = true;
++      for (uint32_t format : formats) {
++        if (first) {
++          a_.OpIEq(dxbc::Dest::R(integer_scale_temp, 0b0100),
++                   dxbc::Src::R(integer_scale_temp, dxbc::Src::kXXXX), dxbc::Src::LU(format));
++          first = false;
++        } else {
++          uint32_t is_format_temp = PushSystemTemp();
++          a_.OpIEq(dxbc::Dest::R(is_format_temp, 0b0001),
++                   dxbc::Src::R(integer_scale_temp, dxbc::Src::kXXXX), dxbc::Src::LU(format));
++          a_.OpOr(dxbc::Dest::R(integer_scale_temp, 0b0100),
++                  dxbc::Src::R(integer_scale_temp, dxbc::Src::kZZZZ),
++                  dxbc::Src::R(is_format_temp, dxbc::Src::kXXXX));
++          // Release is_format_temp.
++          PopSystemTemp();
++        }
++      }
++      a_.OpMovC(dxbc::Dest::R(integer_scale_temp, 0b0010),
++                dxbc::Src::R(integer_scale_temp, dxbc::Src::kZZZZ), dxbc::Src::LF(scale),
++                dxbc::Src::R(integer_scale_temp, dxbc::Src::kYYYY));
++    };
++    // k_16, k_16_16, k_16_16_16_16.
++    select_scale_for_formats({24, 25, 26}, 65535.0f);
++    // k_8, k_8_8_8_8, k_8_A, k_8_B, k_8_8, k_8_8_8_8_A.
++    select_scale_for_formats({2, 6, 8, 9, 10, 14}, 255.0f);
++    // k_4_4_4_4.
++    select_scale_for_formats({15}, 15.0f);
++    a_.OpAnd(dxbc::Dest::R(integer_scale_temp, 0b0100),
++             RequestTextureFetchConstantWord(tfetch_index, 3), dxbc::Src::LU(1));
++    a_.OpMovC(dxbc::Dest::R(integer_scale_temp, 0b0010),
++              dxbc::Src::R(integer_scale_temp, dxbc::Src::kZZZZ),
++              dxbc::Src::R(integer_scale_temp, dxbc::Src::kYYYY), dxbc::Src::LF(1.0f));
++    a_.OpMul(dxbc::Dest::R(system_temp_result_, used_result_nonzero_components),
++             dxbc::Src::R(system_temp_result_), dxbc::Src::R(integer_scale_temp, dxbc::Src::kYYYY));
++    // Release integer_scale_temp.
++    PopSystemTemp();
+   }
+ 
+   uint32_t used_result_zero_components = used_result_components & ~used_result_nonzero_components;
 diff --git a/src/graphics/pipeline/shader/spirv_translator.cpp b/src/graphics/pipeline/shader/spirv_translator.cpp
 index 1774f97..8ce8c2a 100644
 --- a/src/graphics/pipeline/shader/spirv_translator.cpp
@@ -1193,6 +1264,77 @@ index 1774f97..8ce8c2a 100644
    // Pixel parameters.
    if (param_gen_interpolator != UINT32_MAX) {
      Modification modification = GetSpirvShaderModification();
+diff --git a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
+index 9ce3bb4..f6c9d8d 100644
+--- a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
+@@ -2044,6 +2044,66 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
+                 spv::OpFMul, type_float_, result[result_component_index], result_exponent_bias);
+           }
+         }
++
++        // Integer number format (bit 0 of the fetch constant dword 3) on a fixed-point format:
++        // the hardware returns the raw integer value instead of the normalized one. UFC 3 uses
++        // this for a k_16 lookup table of tiled addresses in its GPU texture compressor.
++        {
++          auto load_fetch_constant_dword = [&](uint32_t dword_index) {
++            uint32_t flat_index = fetch_constant_word_0_index + dword_index;
++            id_vector_temp_.clear();
++            id_vector_temp_.push_back(const_int_0_);
++            id_vector_temp_.push_back(builder_->makeIntConstant(int(flat_index >> 2)));
++            id_vector_temp_.push_back(builder_->makeIntConstant(int(flat_index & 3)));
++            return builder_->createLoad(builder_->createAccessChain(spv::StorageClassUniform,
++                                                                    uniform_fetch_constants_,
++                                                                    id_vector_temp_),
++                                        spv::NoPrecision);
++          };
++          spv::Id fc_dword_1 = load_fetch_constant_dword(1);
++          spv::Id fc_dword_3 = load_fetch_constant_dword(3);
++          spv::Id is_integer_format = builder_->createBinOp(
++              spv::OpINotEqual, type_bool_,
++              builder_->createBinOp(spv::OpBitwiseAnd, type_uint_, fc_dword_3,
++                                    builder_->makeUintConstant(1)),
++              const_uint_0_);
++          spv::Id texture_format = builder_->createBinOp(spv::OpBitwiseAnd, type_uint_, fc_dword_1,
++                                                         builder_->makeUintConstant(0x3F));
++          auto format_is = [&](uint32_t format_value) {
++            return builder_->createBinOp(spv::OpIEqual, type_bool_, texture_format,
++                                         builder_->makeUintConstant(format_value));
++          };
++          auto any_of = [&](std::initializer_list<uint32_t> values) {
++            spv::Id any = spv::NoResult;
++            for (uint32_t v : values) {
++              spv::Id is_v = format_is(v);
++              any = any == spv::NoResult
++                        ? is_v
++                        : builder_->createBinOp(spv::OpLogicalOr, type_bool_, any, is_v);
++            }
++            return any;
++          };
++          // k_16, k_16_16, k_16_16_16_16.
++          spv::Id integer_scale = builder_->createTriOp(
++              spv::OpSelect, type_float_, any_of({24, 25, 26}),
++              builder_->makeFloatConstant(65535.0f),
++              // k_8, k_8_8_8_8, k_8_A, k_8_B, k_8_8, k_8_8_8_8_A.
++              builder_->createTriOp(
++                  spv::OpSelect, type_float_, any_of({2, 6, 8, 9, 10, 14}),
++                  builder_->makeFloatConstant(255.0f),
++                  // k_4_4_4_4.
++                  builder_->createTriOp(spv::OpSelect, type_float_, format_is(15),
++                                        builder_->makeFloatConstant(15.0f), const_float_1_)));
++          integer_scale = builder_->createTriOp(spv::OpSelect, type_float_, is_integer_format,
++                                                integer_scale, const_float_1_);
++          uint32_t result_remaining_components = used_result_nonzero_components;
++          uint32_t result_component_index;
++          while (rex::bit_scan_forward(result_remaining_components, &result_component_index)) {
++            result_remaining_components &= ~(UINT32_C(1) << result_component_index);
++            result[result_component_index] = builder_->createNoContractionBinOp(
++                spv::OpFMul, type_float_, result[result_component_index], integer_scale);
++          }
++        }
+       }
+     }
+   }
 diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
 index ec0df7c..e295812 100644
 --- a/src/graphics/shared_memory.cpp
@@ -2294,6 +2436,201 @@ index d0c7bfd..49b2e5b 100644
    std::error_code ec;
    auto dir_removed = std::filesystem::remove_all(package_path, ec);
    if (ec ||
+diff --git a/src/system/xmemory.cpp b/src/system/xmemory.cpp
+index 76cc877..6481bcd 100644
+--- a/src/system/xmemory.cpp
++++ b/src/system/xmemory.cpp
+@@ -1901,29 +1901,33 @@ bool PhysicalHeap::Alloc(uint32_t size, uint32_t alignment, uint32_t allocation_
+   size = rex::round_up(size, page_size_);
+   alignment = rex::round_up(alignment, page_size_);
+ 
+-  // Global critical region before heap_mutex_ - see
+-  // AcquireHostPageReconcileLock for why the order matters.
+-  auto global_lock = AcquireHostPageReconcileLock();
+-  std::lock_guard<std::recursive_mutex> heap_lock(heap_mutex_);
++  uint32_t address;
++  {
++    // Global critical region before heap_mutex_ - see
++    // AcquireHostPageReconcileLock for why the order matters.
++    auto global_lock = AcquireHostPageReconcileLock();
++    std::lock_guard<std::recursive_mutex> heap_lock(heap_mutex_);
+ 
+-  // Allocate from parent heap (gets our physical address in 0-512mb).
+-  uint32_t parent_heap_start = GetPhysicalAddress(heap_base_);
+-  uint32_t parent_heap_end = GetPhysicalAddress(heap_base_ + (heap_size_ - 1));
+-  uint32_t parent_address;
+-  if (!parent_heap_->AllocRange(parent_heap_start, parent_heap_end, size, alignment,
+-                                allocation_type, protect, top_down, &parent_address)) {
+-    REXSYS_ERROR("PhysicalHeap::Alloc unable to alloc physical memory in parent heap");
+-    return false;
+-  }
++    // Allocate from parent heap (gets our physical address in 0-512mb).
++    uint32_t parent_heap_start = GetPhysicalAddress(heap_base_);
++    uint32_t parent_heap_end = GetPhysicalAddress(heap_base_ + (heap_size_ - 1));
++    uint32_t parent_address;
++    if (!parent_heap_->AllocRange(parent_heap_start, parent_heap_end, size, alignment,
++                                  allocation_type, protect, top_down, &parent_address)) {
++      REXSYS_ERROR("PhysicalHeap::Alloc unable to alloc physical memory in parent heap");
++      return false;
++    }
+ 
+-  // Given the address we've reserved in the parent heap, pin that here.
+-  // Shouldn't be possible for it to be allocated already.
+-  uint32_t address = heap_base_ + parent_address - parent_heap_start;
+-  if (!BaseHeap::AllocFixed(address, size, alignment, allocation_type, protect)) {
+-    REXSYS_ERROR("PhysicalHeap::Alloc unable to pin physical memory in physical heap");
+-    // TODO(benvanik): don't leak parent memory.
+-    return false;
++    // Given the address we've reserved in the parent heap, pin that here.
++    // Shouldn't be possible for it to be allocated already.
++    address = heap_base_ + parent_address - parent_heap_start;
++    if (!BaseHeap::AllocFixed(address, size, alignment, allocation_type, protect)) {
++      REXSYS_ERROR("PhysicalHeap::Alloc unable to pin physical memory in physical heap");
++      // TODO(benvanik): don't leak parent memory.
++      return false;
++    }
+   }
++  InvalidateNewAllocation(address, size);
+   *out_address = address;
+   return true;
+ }
+@@ -1934,30 +1938,33 @@ bool PhysicalHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t ali
+   size = rex::round_up(size, page_size_);
+   alignment = rex::round_up(alignment, page_size_);
+ 
+-  // Global critical region before heap_mutex_ - see
+-  // AcquireHostPageReconcileLock for why the order matters.
+-  auto global_lock = AcquireHostPageReconcileLock();
+-  std::lock_guard<std::recursive_mutex> heap_lock(heap_mutex_);
++  uint32_t address;
++  {
++    // Global critical region before heap_mutex_ - see
++    // AcquireHostPageReconcileLock for why the order matters.
++    auto global_lock = AcquireHostPageReconcileLock();
++    std::lock_guard<std::recursive_mutex> heap_lock(heap_mutex_);
+ 
+-  // Allocate from parent heap (gets our physical address in 0-512mb).
+-  // NOTE: this can potentially overwrite heap contents if there are already
+-  // committed pages in the requested physical range.
+-  // TODO(benvanik): flag for ensure-not-committed?
+-  uint32_t parent_base_address = GetPhysicalAddress(base_address);
+-  if (!parent_heap_->AllocFixed(parent_base_address, size, alignment, allocation_type, protect)) {
+-    REXSYS_ERROR("PhysicalHeap::Alloc unable to alloc physical memory in parent heap");
+-    return false;
+-  }
++    // Allocate from parent heap (gets our physical address in 0-512mb).
++    // NOTE: this can potentially overwrite heap contents if there are already
++    // committed pages in the requested physical range.
++    // TODO(benvanik): flag for ensure-not-committed?
++    uint32_t parent_base_address = GetPhysicalAddress(base_address);
++    if (!parent_heap_->AllocFixed(parent_base_address, size, alignment, allocation_type, protect)) {
++      REXSYS_ERROR("PhysicalHeap::Alloc unable to alloc physical memory in parent heap");
++      return false;
++    }
+ 
+-  // Given the address we've reserved in the parent heap, pin that here.
+-  // Shouldn't be possible for it to be allocated already.
+-  uint32_t address = heap_base_ + parent_base_address - GetPhysicalAddress(heap_base_);
+-  if (!BaseHeap::AllocFixed(address, size, page_size_, allocation_type, protect)) {
+-    REXSYS_ERROR("PhysicalHeap::Alloc unable to pin physical memory in physical heap");
+-    // TODO(benvanik): don't leak parent memory.
+-    return false;
++    // Given the address we've reserved in the parent heap, pin that here.
++    // Shouldn't be possible for it to be allocated already.
++    address = heap_base_ + parent_base_address - GetPhysicalAddress(heap_base_);
++    if (!BaseHeap::AllocFixed(address, size, page_size_, allocation_type, protect)) {
++      REXSYS_ERROR("PhysicalHeap::Alloc unable to pin physical memory in physical heap");
++      // TODO(benvanik): don't leak parent memory.
++      return false;
++    }
+   }
+-
++  InvalidateNewAllocation(address, size);
+   return true;
+ }
+ 
+@@ -1970,31 +1977,35 @@ bool PhysicalHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint3
+   size = rex::round_up(size, page_size_);
+   alignment = rex::round_up(alignment, page_size_);
+ 
+-  // Global critical region before heap_mutex_ - see
+-  // AcquireHostPageReconcileLock for why the order matters.
+-  auto global_lock = AcquireHostPageReconcileLock();
+-  std::lock_guard<std::recursive_mutex> heap_lock(heap_mutex_);
++  uint32_t address;
++  {
++    // Global critical region before heap_mutex_ - see
++    // AcquireHostPageReconcileLock for why the order matters.
++    auto global_lock = AcquireHostPageReconcileLock();
++    std::lock_guard<std::recursive_mutex> heap_lock(heap_mutex_);
+ 
+-  // Allocate from parent heap (gets our physical address in 0-512mb).
+-  low_address = std::max(heap_base_, low_address);
+-  high_address = std::min(heap_base_ + (heap_size_ - 1), high_address);
+-  uint32_t parent_low_address = GetPhysicalAddress(low_address);
+-  uint32_t parent_high_address = GetPhysicalAddress(high_address);
+-  uint32_t parent_address;
+-  if (!parent_heap_->AllocRange(parent_low_address, parent_high_address, size, alignment,
+-                                allocation_type, protect, top_down, &parent_address)) {
+-    REXSYS_ERROR("PhysicalHeap::Alloc unable to alloc physical memory in parent heap");
+-    return false;
+-  }
++    // Allocate from parent heap (gets our physical address in 0-512mb).
++    low_address = std::max(heap_base_, low_address);
++    high_address = std::min(heap_base_ + (heap_size_ - 1), high_address);
++    uint32_t parent_low_address = GetPhysicalAddress(low_address);
++    uint32_t parent_high_address = GetPhysicalAddress(high_address);
++    uint32_t parent_address;
++    if (!parent_heap_->AllocRange(parent_low_address, parent_high_address, size, alignment,
++                                  allocation_type, protect, top_down, &parent_address)) {
++      REXSYS_ERROR("PhysicalHeap::Alloc unable to alloc physical memory in parent heap");
++      return false;
++    }
+ 
+-  // Given the address we've reserved in the parent heap, pin that here.
+-  // Shouldn't be possible for it to be allocated already.
+-  uint32_t address = heap_base_ + parent_address - GetPhysicalAddress(heap_base_);
+-  if (!BaseHeap::AllocFixed(address, size, page_size_, allocation_type, protect)) {
+-    REXSYS_ERROR("PhysicalHeap::Alloc unable to pin physical memory in physical heap");
+-    // TODO(benvanik): don't leak parent memory.
+-    return false;
++    // Given the address we've reserved in the parent heap, pin that here.
++    // Shouldn't be possible for it to be allocated already.
++    address = heap_base_ + parent_address - GetPhysicalAddress(heap_base_);
++    if (!BaseHeap::AllocFixed(address, size, page_size_, allocation_type, protect)) {
++      REXSYS_ERROR("PhysicalHeap::Alloc unable to pin physical memory in physical heap");
++      // TODO(benvanik): don't leak parent memory.
++      return false;
++    }
+   }
++  InvalidateNewAllocation(address, size);
+   *out_address = address;
+   return true;
+ }
+@@ -2004,6 +2015,23 @@ bool PhysicalHeap::AllocSystemHeap(uint32_t size, uint32_t alignment, uint32_t a
+   return Alloc(size, alignment, allocation_type, protect, top_down, out_address);
+ }
+ 
++void PhysicalHeap::InvalidateNewAllocation(uint32_t address, uint32_t size) {
++  // GPU-side copies of physical memory are dropped when the CPU writes to
++  // watched pages, but pages can be watched only while allocated. A draw can
++  // make the GPU consider unallocated memory up to date (a memexport stream
++  // declared larger than what it writes, for instance - UFC 3's GPU texture
++  // compressor declares 24 MB for a 4 MB texture), and the CPU writes after
++  // the memory is allocated would then never reach the GPU. The contents of
++  // a new allocation are new to the GPU, so drop its copy of the range. The
++  // pages aren't watched, so TriggerCallbacks would skip them - notify the
++  // physical memory invalidation callbacks directly.
++  uint32_t physical_address = GetPhysicalAddress(address);
++  auto global_lock = global_critical_region_.Acquire();
++  for (auto invalidation_callback : memory_->physical_memory_invalidation_callbacks_) {
++    invalidation_callback->first(invalidation_callback->second, physical_address, size, true);
++  }
++}
++
+ bool PhysicalHeap::Decommit(uint32_t address, uint32_t size) {
+   auto global_lock = global_critical_region_.Acquire();
+ 
 diff --git a/src/ui/d3d12/d3d12_presenter.cpp b/src/ui/d3d12/d3d12_presenter.cpp
 index 306118e..dca5213 100644
 --- a/src/ui/d3d12/d3d12_presenter.cpp
