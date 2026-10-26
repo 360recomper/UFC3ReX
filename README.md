@@ -44,6 +44,10 @@ The launcher checks for new releases and can update itself. Your saves, settings
 Mod packs are zips with a `modpack.json` and a `mods\` folder. Install them from the launcher's **Mod Pack** tab;
 uninstall removes exactly the files the pack added. Mod packs are separate downloads and are not part of this repository.
 
+**Updating a mod pack:** the launcher doesn't download mod packs for you. When a new version comes out, download the new zip and
+install it from the **Mod Pack** tab. The launcher removes the old version first, then installs the new one. Your saves and created
+fighters are kept. Update the game (launcher) first if the pack's notes ask for a newer version.
+
 ## Controls
 
 An Xbox controller is recommended. Press **F4** at any time for quick settings and Quit.
