@@ -11,8 +11,6 @@ public class SettingsTab : ILauncherTab
     readonly ComboBox backend = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
     readonly NumericUpDown cap = new() { Minimum = 0, Maximum = 4096, Width = 80 };
     readonly Dictionary<string, CheckBox> checks = new();
-    // Direct3D 12 still blacks out briefly while a fighter is rocked; with bloom and depth of field off it doesn't.
-    readonly Label d3d12Hint = Ui.Text("Direct3D 12: if the screen goes black while a fighter is rocked, turn on Bloom off and Depth of field off below.");
 
     public string Title => "Settings";
     public Control View => col;
@@ -31,15 +29,12 @@ public class SettingsTab : ILauncherTab
         backend.Items.AddRange(new object[] { "Direct3D 12", "Vulkan (default)" });
         backend.SelectedIndexChanged += (_, _) =>
         {
-            d3d12Hint.Visible = backend.SelectedIndex == 0;
             if (!loading) Write(t => t.SetStr("gpu_backend", backend.SelectedIndex == 1 ? "vulkan" : "d3d12"));
         };
         col.Controls.Add(Row("Graphics backend", backend));
-        d3d12Hint.ForeColor = SystemColors.GrayText;
-        col.Controls.Add(d3d12Hint);
         col.Controls.Add(Check("fullscreen", "Fullscreen (borderless)", true, "Also F11 in game. Alt-tab is instant: the picture stays while another window has focus."));
         col.Controls.Add(Check("pause_on_focus_loss", "Mute while in the background", false, "Sound stops while another window has focus. The game keeps running either way; the controller is ignored until you come back."));
-        col.Controls.Add(Check("ufc3_no_bloom", "Bloom off", false, "Removes the glow around bright areas."));
+        col.Controls.Add(Check("ufc3_no_bloom", "Bloom off", false, "Has no visible effect: fights in this game don't use bloom."));
         col.Controls.Add(Check("ufc3_no_dof", "Depth of field off", false, "Removes the background blur."));
         col.Controls.Add(Check("ufc3_cutscene_60", "60 fps walkouts, intros and replays", false, "The game runs these at 30 fps. Experimental."));
 

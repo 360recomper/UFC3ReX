@@ -43,6 +43,8 @@
 #include <rex/system/kernel_state.h>
 #include <rex/system/xmemory.h>
 
+#include "ufc3_paths.h"
+
 REXCVAR_DEFINE_BOOL(ufc3_merge_mod_fighters, true, "ufc3",
                     "Add fighters from a modded static_x.mpc to the fighter table");
 
@@ -163,21 +165,64 @@ inline const std::vector<uint8_t>& ModPlpm() {
   return plpm;
 }
 
-// IDs on the disc (the unmodded static_x.mpc), to tell mod-added fighters apart.
+// The disc's (unmodded) static_x.mpc plpm, kept for its records.
+inline const std::vector<uint8_t>& DiscPlpm() {
+  static std::vector<uint8_t> plpm;
+  static bool loaded = false;
+  if (loaded) return plpm;
+  loaded = true;
+  auto path = ufc3_paths::GameDataRoot() / "DAT" / "static_x.mpc";
+  plpm = ReadPlpm(path);
+  if (Records(plpm).empty()) {
+    REXLOG_ERROR("[roster] disc fighter table not found at {}; roster merge off", path.string());
+  }
+  return plpm;
+}
+
+// IDs on the disc, to tell mod-added fighters apart.
 inline const std::unordered_set<uint32_t>& DiscIds() {
   static std::unordered_set<uint32_t> ids;
   static bool loaded = false;
   if (loaded) return ids;
   loaded = true;
-  std::string root = rex::cvar::GetFlagByName("game_data_root");
-  auto plpm = ReadPlpm(std::filesystem::path(root) / "DAT" / "static_x.mpc");
-  for (auto* r : Records(plpm)) ids.insert(RecId(r));
+  for (auto* r : Records(DiscPlpm())) ids.insert(RecId(r));
   REXLOG_INFO("[roster] disc fighter table: {} records", ids.size());
   return ids;
 }
 
+// Rating bytes: the 22 attributes and the overall (FINDINGS-ratings.md).
+constexpr uint32_t kRatingsOff = 0x30, kRatingsLen = 0x16, kOverallOff = 0x109;
+
+// A disc fighter keeps the save's record, so a mod rating override never reached
+// him (Liddell stayed 85 while mod-added Classic Tito showed 90). Copy the mod's
+// ratings onto the save's record, but only where the mod changed them from the
+// disc, so everything else in the save's record stays. Returns true if it did.
+inline bool ApplyModRatings(uint8_t* rec, uint32_t id) {
+  static std::unordered_map<uint32_t, const uint8_t*> mod, disc;
+  static bool loaded = false;
+  if (!loaded) {
+    loaded = true;
+    for (auto* r : Records(ModPlpm())) mod[RecId(r)] = r;
+    for (auto* r : Records(DiscPlpm())) disc[RecId(r)] = r;
+  }
+  auto m = mod.find(id);
+  auto d = disc.find(id);
+  if (m == mod.end() || d == disc.end()) return false;
+  const uint8_t* mr = m->second;
+  const uint8_t* dr = d->second;
+  if (std::memcmp(mr + kRatingsOff, dr + kRatingsOff, kRatingsLen) == 0 && mr[kOverallOff] == dr[kOverallOff]) {
+    return false;
+  }
+  if (std::memcmp(rec + kRatingsOff, mr + kRatingsOff, kRatingsLen) == 0 && rec[kOverallOff] == mr[kOverallOff]) {
+    return false;
+  }
+  std::memcpy(rec + kRatingsOff, mr + kRatingsOff, kRatingsLen);
+  rec[kOverallOff] = mr[kOverallOff];
+  return true;
+}
+
 inline std::filesystem::path SidecarPath() {
-  return std::filesystem::path(rex::cvar::GetFlagByName("user_data_root")) / kSidecarName;
+  return ufc3_paths::UserDataRoot() / kSidecarName;
 }
 
 // Edited extra records saved by an earlier session, by ID.
@@ -207,7 +252,14 @@ inline void MergeInPlace(uint8_t* base, const char* from) {
   uint32_t last = Load32(base, table + kTableHeader + (count - 1) * kRecordSize);
   if (table == merged_table && count == merged_count && last == merged_last) return;
   std::unordered_set<uint32_t> have;
-  for (uint32_t i = 0; i < count; ++i) have.insert(Load32(base, table + kTableHeader + i * kRecordSize) >> 16);
+  uint32_t rated = 0;
+  for (uint32_t i = 0; i < count; ++i) {
+    uint8_t* rec = base + table + kTableHeader + i * kRecordSize;
+    uint32_t id = Load32(base, table + kTableHeader + i * kRecordSize) >> 16;
+    have.insert(id);
+    if (DiscIds().count(id) && ApplyModRatings(rec, id)) ++rated;
+  }
+  if (rated) REXLOG_INFO("[roster] {}: mod ratings applied to {} disc fighters", from, rated);
   uint32_t before = count;
   for (auto* rec : Records(ModPlpm())) {
     if (have.count(RecId(rec))) continue;
@@ -266,6 +318,9 @@ inline void RememberSource(uint8_t* base, Relocated& st, uint32_t src) {
 // Called on every fighter-table access; the common path is a few loads.
 inline void MergeModFighters(uint8_t* base, const char* from) {
   if (!REXCVAR_GET(ufc3_merge_mod_fighters)) return;
+  // Without the disc list a mod fighter can't be told from a disc one, and
+  // without a mod plpm there is nothing to add: leave the game's own table.
+  if (DiscIds().empty() || Records(ModPlpm()).empty()) return;
   if (REXCVAR_GET(ufc3_roster_cap) == 0) {
     MergeInPlace(base, from);
     return;
@@ -302,7 +357,7 @@ inline void MergeModFighters(uint8_t* base, const char* from) {
   // Header and the save's records first, in their order (SyncForSave relies on it).
   std::memcpy(base + st.buffer, base + src, kTableHeader);
   std::unordered_set<uint32_t> have;
-  uint32_t count = 0, refreshed = 0;
+  uint32_t count = 0, refreshed = 0, rated = 0;
   st.orphans.clear();
   for (uint32_t i = 0; i < n; ++i) {
     uint32_t at = st.buffer + kTableHeader + count * kRecordSize;
@@ -322,6 +377,8 @@ inline void MergeModFighters(uint8_t* base, const char* from) {
       uint32_t hidden = kOrphanIdTop - uint32_t(st.orphans.size() - 1);
       Store32(base, at, (hidden << 16) | (Load32(base, at) & 0xFFFF));
       REXLOG_INFO("[roster] save fighter {} is not in the mod: hidden as {}", id, hidden);
+    } else if (disc.count(id) && ApplyModRatings(base + at, id)) {
+      ++rated;
     }
     have.insert(id);
     ++count;
@@ -351,6 +408,7 @@ inline void MergeModFighters(uint8_t* base, const char* from) {
   REXLOG_INFO("[roster] {}: fighter table {:08X} -> {:08X}: {} from the save ({} mod records "
               "refreshed) + {} from the mod ({} edited ones from {}) = {} of {}",
               from, src, st.buffer, n, refreshed, added, from_sidecar, kSidecarName, count, st.cap);
+  if (rated) REXLOG_INFO("[roster] {}: mod ratings applied to {} disc fighters", from, rated);
   if (dropped) {
     REXLOG_WARN("[roster] {} mod fighters did not fit (ufc3_roster_cap {})", dropped, st.cap);
   }

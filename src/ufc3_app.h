@@ -9,6 +9,8 @@
 #include <rex/rex_app.h>
 #include <rex/system/gpu_plugin.h>
 
+#include "ufc3_paths.h"
+
 // Vulkan is the default (v1.0.1): with hoisted shared-memory uploads it holds
 // 60 and it doesn't black out while a fighter is rocked, which D3D12 does.
 // Without the hoist, Vulkan ends the render pass for every small upload (this
@@ -72,6 +74,8 @@ class Ufc3App : public rex::ReXApp {
         std::filesystem::is_directory(exe_dir / "mods", ec)) {
       rex::cvar::SetFlagByName("mods_root", (exe_dir / "mods").string());
     }
+    ufc3_paths::ResolvedGameDataRoot() = paths.game_data_root;
+    ufc3_paths::ResolvedUserDataRoot() = paths.user_data_root;
   }
 
   void OnPreSetup(rex::RuntimeConfig& config) override {

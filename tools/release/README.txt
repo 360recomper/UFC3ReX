@@ -25,6 +25,32 @@ FOLDERS (all next to ufc3.exe)
   userdata\  your saves, created on first run
   ufc3.toml  settings (F4 in game edits these)
 
+GRAPHICS
+  Render scale (launcher Settings tab): 1x = 720p, 2x = 1440p, 3x = 4K, 4x = 5K+. It is how sharp
+  the picture is drawn, and how hard your GPU works.
+  Window / output size is separate: the game window, or your screen in borderless fullscreen (F11).
+  The picture is scaled to fit it, so a higher render scale on a smaller screen still looks sharper.
+  Backend: Vulkan is the default and the better tested. Direct3D 12 works too. If something looks wrong on one, try the other.
+
+WHAT'S NEW IN 1.0.6
+  - Render scale 2x and above: created fighters (skin, face, portraits, shirts) no longer turn black
+    or to colored noise, and damage and blood on the face and mat show up.
+  - The black screen when a fighter is rocked is fixed (Vulkan).
+  - Career mode: no crash at the end of the first real fight, and created-fighter pictures are right.
+  - Fewer hitches when saving or applying clothes in the fighter creator.
+  - Guard against a crash in Liddell vs Quarry (PRIDE) after loading the match several times.
+  - Without the mod pack, some disc fighters (for example Brock Lesnar) could vanish from fighter select. Fixed.
+  - Mod pack 1.0.6: no shin line on UFC 2009 fighters, walkout shirts fit, UFC 2010 fighters wear their own
+    shirt designs, changed ratings apply to existing saves.
+
+KNOWN ISSUES
+  - Select-screen pictures of fighters from UFC 2009/2010 are framed closer than the rest.
+  - The created-fighter card portrait is a little low-res.
+  - At 3x, opponent sponsor logos are drawn at 1x.
+  - 8 added fighters skip the hometown line in their intro.
+  - Created-fighter portraits saved by older versions stay garbled; make the portrait again.
+  - Bloom off in Settings currently has no visible effect.
+
 CONTROLS
 An Xbox controller is recommended. F4 in game: quick settings and Quit.
 DLSS 5 (optional, needs an NVIDIA RTX card) is set up in the launcher's DLSS 5 tab.

@@ -14,6 +14,8 @@
 #include "pride_range.h"
 #include "dialogue_trace.h"
 #include "dlc_sound_banks.h"
+#include "position_guard.h"
+#include "acce_trace.h"
 #include "skip_trace.h"
 
 REX_DEFINE_APP(ufc3, Ufc3App::Create)
