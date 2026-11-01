@@ -601,7 +601,7 @@ index dce3dbf..b8719b9 100644
    // Must be called before emitting any SPIR-V operations that must be in a
    // block in translator callbacks to ensure that if the last instruction added
 diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
-index d26cd4f..83bfc01 100644
+index d26cd4f..444bc01 100644
 --- a/include/rex/graphics/pipeline/texture/cache.h
 +++ b/include/rex/graphics/pipeline/texture/cache.h
 @@ -81,6 +81,80 @@ class TextureCache {
@@ -722,13 +722,18 @@ index d26cd4f..83bfc01 100644
  
    // Converts a texture fetch constant to a texture key, normalizing and
    // validating the values, or creating an invalid key, and also gets the
-@@ -571,6 +675,22 @@ class TextureCache {
+@@ -571,6 +675,27 @@ class TextureCache {
    // Checks if there are any pages that contain scaled resolve data within the
    // range.
    bool IsRangeScaledResolved(uint32_t start_unscaled, uint32_t length_unscaled);
 +  // Whether every page of the range holds scaled resolve data that a resolve
 +  // rendered at the scale (not data upscaled from 1x, not unscaled data).
 +  bool IsRangeRenderedAtScale(uint32_t start_unscaled, uint32_t length_unscaled);
++  // Whether the range starts with a run of pages rendered at the scale and no
++  // later page of it is (a composite shorter than the texture). The length of
++  // the run in pages is written to rendered_pages_out.
++  bool IsRangeRenderedAtScalePrefix(uint32_t start_unscaled, uint32_t length_unscaled,
++                                    uint32_t* rendered_pages_out);
 +  // Sets or clears page bits [page_first, page_last] in a page bit vector.
 +  static void ModifyPageBits(uint32_t* bits, uint32_t page_first, uint32_t page_last, bool set);
 +  // For a texture loaded at 1x while some of its pages hold scaled resolve
@@ -745,7 +750,7 @@ index d26cd4f..83bfc01 100644
    // Global shared memory invalidation callback for invalidating scaled resolved
    // texture data.
    static void ScaledResolveGlobalWatchCallbackThunk(
-@@ -592,6 +712,15 @@ class TextureCache {
+@@ -592,6 +717,15 @@ class TextureCache {
    // resolve data. uint32_t rather than uint64_t because parts of it can be sent
    // to shaders.
    std::unique_ptr<uint32_t[]> scaled_resolve_pages_;
@@ -761,7 +766,7 @@ index d26cd4f..83bfc01 100644
    // Second level of the bit vector for faster rejection of non-scaled textures.
    // >> 12 for 4 KB pages, >> 5 for uint32_t level 1 bits, >> 6 for uint64_t
    // level 2 bits.
-@@ -600,6 +729,38 @@ class TextureCache {
+@@ -600,6 +734,39 @@ class TextureCache {
    // Global watch for scaled resolve data invalidation.
    SharedMemory::GlobalWatchHandle scaled_resolve_global_watch_handle_ = nullptr;
  
@@ -774,6 +779,7 @@ index d26cd4f..83bfc01 100644
 +  // Mixed textures loaded at 1x and DownscaleScaledPagesToSharedMemory
 +  // statistics, for the log.
 +  uint32_t mixed_texture_log_count_ = 0;
++  uint32_t tail_composite_log_count_ = 0;
 +  uint64_t mixed_texture_count_ = 0;
 +  // Last 1x (mixed, true) / scaled choice per top level address of scaled
 +  // textures, to log flips between them and keep them at 1x (sticky). The
@@ -1948,7 +1954,7 @@ index 11b83be..0652ff6 100644
      // two blocks that are not neighbors.
      carry_valid_ = false;
 diff --git a/src/core/cvar.cpp b/src/core/cvar.cpp
-index 228728d..63d98dc 100644
+index 228728d..e4d0224 100644
 --- a/src/core/cvar.cpp
 +++ b/src/core/cvar.cpp
 @@ -14,6 +14,7 @@
@@ -1982,7 +1988,19 @@ index 228728d..63d98dc 100644
  // todo(tomc): move restart manager to Runtime
  std::vector<std::string>& GetPendingRestartStorage() {
    static std::vector<std::string> pending;
-@@ -691,7 +708,51 @@ bool IsFinalized() {
+@@ -643,7 +660,10 @@ void LoadConfig(const std::filesystem::path& config_path) {
+   }
+ 
+   try {
+-    auto config = toml::parse_file(config_path.string());
++    // u8string (UTF-8; no char8_t in this build): toml++ opens the path as UTF-8,
++    // string() is the ANSI codepage on Windows, so a non-ASCII folder (a localized
++    // Desktop) would never load.
++    auto config = toml::parse_file(config_path.u8string());
+     ApplyTomlTable(config, "");
+     REXLOG_DEBUG("Loaded config from {}", config_path.string());
+   } catch (const toml::parse_error& err) {
+@@ -691,7 +711,51 @@ bool IsFinalized() {
  }
  
  void SaveConfig(const std::filesystem::path& config_path) {
@@ -1993,7 +2011,7 @@ index 228728d..63d98dc 100644
 +  std::vector<std::pair<std::string, std::string>> on_disk;
 +  if (std::filesystem::exists(config_path)) {
 +    try {
-+      CollectTomlText(toml::parse_file(config_path.string()), "", on_disk);
++      CollectTomlText(toml::parse_file(config_path.u8string()), "", on_disk);
 +    } catch (const toml::parse_error& err) {
 +      REXLOG_WARN("SaveConfig: ignoring unparsable {}: {}", config_path.string(), err.what());
 +    }
@@ -2175,6 +2193,37 @@ index c5a2c5d..7c19a61 100644
  }
  
  std::filesystem::path GetExecutableFolder() {
+diff --git a/src/core/logging.cpp b/src/core/logging.cpp
+index e8de147..b364836 100644
+--- a/src/core/logging.cpp
++++ b/src/core/logging.cpp
+@@ -26,6 +26,7 @@
+ #include <toml++/toml.hpp>
+ 
+ #include <rex/cvar.h>
++#include <rex/filesystem.h>
+ #include <rex/logging.h>
+ #include <rex/platform.h>
+ #include <rex/platform/env.h>
+@@ -576,7 +577,8 @@ LogConfig BuildLogConfig(const std::string& cli_level,
+ 
+ void ApplyLogCvarOverrides(LogConfig& config) {
+   if (rex::cvar::HasNonDefaultValue("log_file")) {
+-    config.log_file = std::string(REXCVAR_GET(log_file));
++    // The cvar is UTF-8; path(std::string) would read it in the ANSI codepage.
++    config.log_file = rex::to_path(REXCVAR_GET(log_file));
+   }
+   if (rex::cvar::HasNonDefaultValue("log_flush_interval")) {
+     config.flush_interval = std::chrono::seconds(REXCVAR_GET(log_flush_interval));
+@@ -594,7 +596,7 @@ std::map<std::string, std::string> ParseCategoryLevelsFromConfig(
+     return result;
+ 
+   try {
+-    auto config = toml::parse_file(config_path.string());
++    auto config = toml::parse_file(config_path.u8string());
+     auto* log_table = config["log"].as_table();
+     if (!log_table)
+       return result;
 diff --git a/src/filesystem/devices/host_path_device.cpp b/src/filesystem/devices/host_path_device.cpp
 index f68b79a..6928358 100644
 --- a/src/filesystem/devices/host_path_device.cpp
@@ -5001,7 +5050,7 @@ index 765c141..369f3f1 100644
          // after blending on the Xbox 360, but this is just one of many blending
          // issues in the host render target path.
 diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
-index 76f5600..d767124 100644
+index 76f5600..a5bd4ec 100644
 --- a/src/graphics/pipeline/texture/cache.cpp
 +++ b/src/graphics/pipeline/texture/cache.cpp
 @@ -12,6 +12,7 @@
@@ -5020,7 +5069,7 @@ index 76f5600..d767124 100644
  #include <rex/graphics/xenos.h>
  #include <rex/logging.h>
  #include <rex/math.h>
-@@ -80,6 +82,51 @@ REXCVAR_DEFINE_INT32(resolution_scale, 1, "GPU",
+@@ -80,6 +82,59 @@ REXCVAR_DEFINE_INT32(resolution_scale, 1, "GPU",
  REXCVAR_DEFINE_BOOL(pre_mask_resolve_l2_block, true, "GPU",
                      "Pre-mask scaled resolve L2 blocks to the write range before iterating");
  
@@ -5062,6 +5111,14 @@ index 76f5600..d767124 100644
 +                    "quality between rounds; false = it may flip to scaled)")
 +    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 +
++REXCVAR_DEFINE_BOOL(scaled_resolve_mixed_tail_scaled, true, "GPU",
++                    "With scaled_resolve_mixed_unscaled, load a texture scaled when the pages "
++                    "rendered at the scale are one run from the start of its top level and the "
++                    "rest were never rendered (a composite shorter than the texture, like "
++                    "sponsor logos on shorts): the rest is upscaled from 1x (false = load it "
++                    "at 1x)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
 +REXCVAR_DEFINE_BOOL(scaled_resolve_downscale_box, true, "GPU",
 +                    "With resolution scaling, downscale 32bpp 8-bit-per-channel resolve data that "
 +                    "was rendered at the scale to 1x (CPU readback of pictures, 1x loads of mixed "
@@ -5072,7 +5129,7 @@ index 76f5600..d767124 100644
  // DEFINE_int32(
  //     draw_resolution_scale_x, 1,
  //     "Integer pixel width scale used for scaling the rendering resolution "
-@@ -219,6 +266,14 @@ TextureCache::TextureCache(const RegisterFile& register_file, SharedMemory& shar
+@@ -219,6 +274,14 @@ TextureCache::TextureCache(const RegisterFile& register_file, SharedMemory& shar
      constexpr uint32_t kScaledResolvePageDwordCount = SharedMemory::kBufferSize / 4096 / 32;
      scaled_resolve_pages_ = std::unique_ptr<uint32_t[]>(new uint32_t[kScaledResolvePageDwordCount]);
      std::memset(scaled_resolve_pages_.get(), 0, kScaledResolvePageDwordCount * sizeof(uint32_t));
@@ -5087,7 +5144,7 @@ index 76f5600..d767124 100644
      std::memset(scaled_resolve_pages_l2_, 0, sizeof(scaled_resolve_pages_l2_));
      scaled_resolve_global_watch_handle_ =
          shared_memory.RegisterGlobalWatch(ScaledResolveGlobalWatchCallbackThunk, this);
-@@ -296,6 +351,7 @@ void TextureCache::CompletedSubmissionUpdated(uint64_t completed_submission_inde
+@@ -296,6 +359,7 @@ void TextureCache::CompletedSubmissionUpdated(uint64_t completed_submission_inde
      assert_true(found_texture_it != textures_.end());
      if (found_texture_it != textures_.end()) {
        assert_true(found_texture_it->second.get() == texture);
@@ -5095,7 +5152,7 @@ index 76f5600..d767124 100644
        textures_.erase(found_texture_it);
        // `texture` is invalid now.
      }
-@@ -326,22 +382,8 @@ void TextureCache::MarkRangeAsResolved(uint32_t start_unscaled, uint32_t length_
+@@ -326,22 +390,8 @@ void TextureCache::MarkRangeAsResolved(uint32_t start_unscaled, uint32_t length_
    length_unscaled = std::min(length_unscaled, 0x20000000 - start_unscaled);
  
    if (IsDrawResolutionScaled()) {
@@ -5119,7 +5176,7 @@ index 76f5600..d767124 100644
    }
  
    // Invalidate textures. Toggling individual textures between scaled and
-@@ -349,6 +391,466 @@ void TextureCache::MarkRangeAsResolved(uint32_t start_unscaled, uint32_t length_
+@@ -349,6 +399,503 @@ void TextureCache::MarkRangeAsResolved(uint32_t start_unscaled, uint32_t length_
    shared_memory().RangeWrittenByGpu(start_unscaled, length_unscaled);
  }
  
@@ -5417,6 +5474,43 @@ index 76f5600..d767124 100644
 +  return true;
 +}
 +
++bool TextureCache::IsRangeRenderedAtScalePrefix(uint32_t start_unscaled, uint32_t length_unscaled,
++                                                uint32_t* rendered_pages_out) {
++  if (!IsDrawResolutionScaled()) {
++    return false;
++  }
++  start_unscaled = std::min(start_unscaled, SharedMemory::kBufferSize);
++  length_unscaled = std::min(length_unscaled, SharedMemory::kBufferSize - start_unscaled);
++  if (!length_unscaled) {
++    return false;
++  }
++  uint32_t page_first = start_unscaled >> 12;
++  uint32_t page_last = (start_unscaled + length_unscaled - 1) >> 12;
++  auto global_lock = global_critical_region_.Acquire();
++  auto is_rendered = [this](uint32_t page) {
++    uint32_t bit = UINT32_C(1) << (page & 31);
++    return (scaled_resolve_pages_[page >> 5] & bit) &&
++           !(scaled_resolve_upscaled_pages_[page >> 5] & bit);
++  };
++  uint32_t page = page_first;
++  while (page <= page_last && is_rendered(page)) {
++    ++page;
++  }
++  uint32_t run = page - page_first;
++  if (!run) {
++    return false;
++  }
++  for (; page <= page_last; ++page) {
++    if (is_rendered(page)) {
++      return false;
++    }
++  }
++  if (rendered_pages_out) {
++    *rendered_pages_out = run;
++  }
++  return true;
++}
++
 +bool TextureCache::IsDownscaleBoxFormat(xenos::TextureFormat format) {
 +  // Every byte is one 8-bit channel, whatever the endianness.
 +  switch (format) {
@@ -5586,7 +5680,7 @@ index 76f5600..d767124 100644
  uint32_t TextureCache::GuestToHostSwizzle(uint32_t guest_swizzle, uint32_t host_format_swizzle) {
    uint32_t host_swizzle = 0;
    for (uint32_t i = 0; i < 4; ++i) {
-@@ -433,6 +935,73 @@ bool TextureCache::CommitPreparedTextureLoad(const PendingTextureLoad& pending_l
+@@ -433,6 +980,73 @@ bool TextureCache::CommitPreparedTextureLoad(const PendingTextureLoad& pending_l
                                        texture_key.mip_page << 12, texture.GetGuestMipsSize(), 4)) {
        return false;
      }
@@ -5660,7 +5754,7 @@ index 76f5600..d767124 100644
    }
  
    if (!LoadTextureDataFromResidentMemoryImpl(texture, pending_load.load_base,
-@@ -758,20 +1327,93 @@ void TextureCache::WatchCallback(const std::unique_lock<std::recursive_mutex>& g
+@@ -758,20 +1372,106 @@ void TextureCache::WatchCallback(const std::unique_lock<std::recursive_mutex>& g
  void TextureCache::DestroyAllTextures(bool from_destructor) {
    ResetTextureBindings(from_destructor);
    textures_.clear();
@@ -5728,6 +5822,19 @@ index 76f5600..d767124 100644
 +        uint64_t shape;
 +        GetScaledMixedChoiceKey(key, check_start, shape, &mixed_rendered_check_length);
 +        bool mixed = !IsRangeRenderedAtScale(check_start, mixed_rendered_check_length);
++        uint32_t tail_rendered = 0;
++        if (mixed && REXCVAR_GET(scaled_resolve_mixed_tail_scaled) &&
++            IsRangeRenderedAtScalePrefix(check_start, mixed_rendered_check_length,
++                                         &tail_rendered)) {
++          mixed = false;
++          if (++tail_composite_log_count_ <= 32 || REXCVAR_GET(scaled_resolve_upscale_log)) {
++            REXGPU_INFO(
++                "Tail composite {}x{} {} at {:08X} loaded scaled: {} of {} top-level pages "
++                "rendered, the rest upscaled from 1x",
++                key.GetWidth(), key.GetHeight(), FormatInfo::Get(key.format)->name, check_start,
++                tail_rendered, (mixed_rendered_check_length + 0xFFF) >> 12);
++          }
++        }
 +        // A recomposite whose rectangle covers the whole top level makes a
 +        // texture loaded at 1x so far "all rendered", so it flips to scaled:
 +        // the face's compressor input changes quality between rounds (3x top
@@ -5760,7 +5867,7 @@ index 76f5600..d767124 100644
      }
    }
  
-@@ -877,10 +1519,21 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
+@@ -877,10 +1577,21 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
    }
    COUNT_profile_set("gpu/texture_cache/textures", textures_.size());
    texture->LogAction("Created");
@@ -5782,7 +5889,7 @@ index 76f5600..d767124 100644
    PendingTextureLoad pending_load;
    PendingSharedMemoryRange pending_ranges[2];
    size_t pending_range_count = 0;
-@@ -1110,6 +1763,8 @@ void TextureCache::ScaledResolveGlobalWatchCallback(
+@@ -1110,6 +1821,8 @@ void TextureCache::ScaledResolveGlobalWatchCallback(
          resolve_keep_bits |= ~((UINT32_C(1) << ((resolve_page_last & 31) + 1)) - 1);
        }
        scaled_resolve_pages_[resolve_block_index] &= resolve_keep_bits;
@@ -10448,10 +10555,267 @@ index ecbd940..1a67ba7 100644
    // fallback null images.
    if (device_properties.nullDescriptor) {
 diff --git a/src/input/input_system.cpp b/src/input/input_system.cpp
-index 40740ee..ec46e0e 100644
+index 40740ee..ee378d2 100644
 --- a/src/input/input_system.cpp
 +++ b/src/input/input_system.cpp
-@@ -62,6 +62,7 @@ X_STATUS InputSystem::Setup() {
+@@ -10,8 +10,14 @@
+  */
+ 
+ #include <algorithm>
++#include <chrono>
+ #include <cmath>
++#include <cstdlib>
+ #include <cstring>
++#include <fstream>
++#include <mutex>
++#include <sstream>
++#include <string>
+ 
+ #include <rex/dbg.h>
+ #include <rex/input/device_assignment.h>
+@@ -30,6 +36,10 @@ REXCVAR_DEFINE_STRING(input_backend, "sdl", "Input", "Input backend: sdl, xinput
+     .allowed({"sdl", "xinput"});
+ 
+ REXCVAR_DEFINE_BOOL(guide_button, false, "Input", "Enable guide button pass-through");
++REXCVAR_DEFINE_STRING(input_script, "", "Input",
++                      "Virtual pads for unattended self-tests: a text file of timed pad events.\n"
++                      "Each pad it names (0-3) is connected and driven only by the script, also\n"
++                      "while the window is unfocused. Empty = off");
+ 
+ REXCVAR_DEFINE_BOOL(vibration, true, "Input", "Enable controller vibration");
+ 
+@@ -47,10 +57,230 @@ namespace {
+ // a real pad off guest user 0. SlotAssignment routes them by their synthetic
+ // flag and never reads this value.
+ constexpr uint32_t kSyntheticOrdinal = UINT32_MAX;
++// Input script (cvar input_script). One event per line, '#' starts a comment:
++//   pad <n>                                    connect pad n (idle unless events drive it)
++//   <t> <pad> <hold> [BUTTON...] [lx=f] [ly=f] [rx=f] [ry=f] [lt=f] [rt=f]
++// t = seconds since the first pad poll ("+s" = after the previous event's t), hold = seconds held,
++// sticks -1..1, triggers 0..1. Buttons: A B X Y START BACK LB RB LS RS UP DOWN LEFT RIGHT.
++// Events overlapping in time OR their buttons; the last one sets the sticks.
++struct ScriptEvent {
++  double t = 0.0;
++  double hold = 0.0;
++  uint32_t pad = 0;
++  uint16_t buttons = 0;
++  double lx = 0.0, ly = 0.0, rx = 0.0, ry = 0.0, lt = 0.0, rt = 0.0;
++  bool logged = false;
++};
++
++struct InputScript {
++  std::mutex mutex;
++  bool loaded = false;
++  bool pads[4] = {};
++  std::vector<ScriptEvent> events;
++  std::chrono::steady_clock::time_point t0;
++  uint32_t packet = 0;
++  uint16_t key_buttons[4] = {};  // buttons already reported as keystrokes
++};
++
++InputScript& Script() {
++  static InputScript script;
++  return script;
++}
++
++uint16_t ScriptButton(const std::string& name) {
++  static const std::pair<const char*, uint16_t> kButtons[] = {
++      {"A", X_INPUT_GAMEPAD_A},
++      {"B", X_INPUT_GAMEPAD_B},
++      {"X", X_INPUT_GAMEPAD_X},
++      {"Y", X_INPUT_GAMEPAD_Y},
++      {"START", X_INPUT_GAMEPAD_START},
++      {"BACK", X_INPUT_GAMEPAD_BACK},
++      {"LB", X_INPUT_GAMEPAD_LEFT_SHOULDER},
++      {"RB", X_INPUT_GAMEPAD_RIGHT_SHOULDER},
++      {"LS", X_INPUT_GAMEPAD_LEFT_THUMB},
++      {"RS", X_INPUT_GAMEPAD_RIGHT_THUMB},
++      {"UP", X_INPUT_GAMEPAD_DPAD_UP},
++      {"DOWN", X_INPUT_GAMEPAD_DPAD_DOWN},
++      {"LEFT", X_INPUT_GAMEPAD_DPAD_LEFT},
++      {"RIGHT", X_INPUT_GAMEPAD_DPAD_RIGHT},
++  };
++  for (const auto& [n, bit] : kButtons) {
++    if (name == n) {
++      return bit;
++    }
++  }
++  return 0;
++}
++
++// Caller holds the mutex.
++void LoadScript(InputScript& script) {
++  script.loaded = true;
++  script.t0 = std::chrono::steady_clock::now();
++  const std::string path = REXCVAR_GET(input_script);
++  if (path.empty()) {
++    return;
++  }
++  std::ifstream in(path);
++  if (!in) {
++    REXLOG_ERROR("input_script: cannot open {}", path);
++    return;
++  }
++  std::string line;
++  double prev_t = 0.0;
++  while (std::getline(in, line)) {
++    line = line.substr(0, line.find('#'));
++    std::istringstream words(line);
++    std::string first;
++    if (!(words >> first)) {
++      continue;
++    }
++    if (first == "pad") {
++      uint32_t n = 0;
++      if (words >> n && n < 4) {
++        script.pads[n] = true;
++      }
++      continue;
++    }
++    ScriptEvent ev;
++    ev.t = first[0] == '+' ? prev_t + std::atof(first.c_str() + 1) : std::atof(first.c_str());
++    if (!(words >> ev.pad >> ev.hold) || ev.pad >= 4) {
++      REXLOG_ERROR("input_script: bad line '{}'", line);
++      continue;
++    }
++    prev_t = ev.t;
++    std::string word;
++    while (words >> word) {
++      const auto eq = word.find('=');
++      if (eq == std::string::npos) {
++        std::transform(word.begin(), word.end(), word.begin(),
++                       [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
++        const uint16_t bit = ScriptButton(word);
++        if (!bit) {
++          REXLOG_ERROR("input_script: unknown button '{}'", word);
++        }
++        ev.buttons |= bit;
++        continue;
++      }
++      const std::string key = word.substr(0, eq);
++      const double v = std::clamp(std::atof(word.c_str() + eq + 1), -1.0, 1.0);
++      if (key == "lx") {
++        ev.lx = v;
++      } else if (key == "ly") {
++        ev.ly = v;
++      } else if (key == "rx") {
++        ev.rx = v;
++      } else if (key == "ry") {
++        ev.ry = v;
++      } else if (key == "lt") {
++        ev.lt = v;
++      } else if (key == "rt") {
++        ev.rt = v;
++      }
++    }
++    script.pads[ev.pad] = true;
++    script.events.push_back(ev);
++  }
++  REXLOG_INFO("input_script: {} events from {}", script.events.size(), path);
++}
++
++bool ScriptOwnsPad(uint32_t user_index) {
++  auto& script = Script();
++  std::lock_guard lock(script.mutex);
++  if (!script.loaded) {
++    LoadScript(script);
++  }
++  return user_index < 4 && script.pads[user_index];
++}
++
++bool ScriptState(uint32_t user_index, X_INPUT_STATE* out_state) {
++  if (!ScriptOwnsPad(user_index)) {
++    return false;
++  }
++  auto& script = Script();
++  std::lock_guard lock(script.mutex);
++  const double now =
++      std::chrono::duration<double>(std::chrono::steady_clock::now() - script.t0).count();
++  auto stick = [](double v) { return static_cast<int16_t>(std::lround(v * 32767.0)); };
++  auto trigger = [](double v) { return static_cast<uint8_t>(std::lround(std::abs(v) * 255.0)); };
++  X_INPUT_STATE state = {};
++  uint16_t buttons = 0;
++  for (auto& ev : script.events) {
++    if (ev.pad != user_index || now < ev.t || now >= ev.t + ev.hold) {
++      continue;
++    }
++    if (!ev.logged) {
++      ev.logged = true;
++      REXLOG_INFO("input_script: t {:.2f} pad {} buttons {:04X} lx {} ly {}", ev.t, ev.pad, ev.buttons,
++                  ev.lx, ev.ly);
++    }
++    buttons |= ev.buttons;
++    if (ev.lx != 0.0 || ev.ly != 0.0) {
++      state.gamepad.thumb_lx = stick(ev.lx);
++      state.gamepad.thumb_ly = stick(ev.ly);
++    }
++    if (ev.rx != 0.0 || ev.ry != 0.0) {
++      state.gamepad.thumb_rx = stick(ev.rx);
++      state.gamepad.thumb_ry = stick(ev.ry);
++    }
++    if (ev.lt != 0.0) {
++      state.gamepad.left_trigger = trigger(ev.lt);
++    }
++    if (ev.rt != 0.0) {
++      state.gamepad.right_trigger = trigger(ev.rt);
++    }
++  }
++  state.gamepad.buttons = buttons;
++  state.packet_number = ++script.packet;
++  if (out_state) {
++    *out_state = state;
++  }
++  return true;
++}
++
+ 
+ // XN_SYS_INPUTDEVICESCHANGED
+ constexpr uint32_t kXNotificationSystemInputDevicesChanged = 0x00000012;
+ 
++// Keystroke events for scripted pads (menus that read XInputGetKeystroke): one down/up edge per call.
++X_RESULT ScriptKeystroke(uint32_t user_index, X_INPUT_KEYSTROKE* out) {
++  static const std::pair<uint16_t, uint16_t> kKeys[] = {
++      {X_INPUT_GAMEPAD_A, 0x5800},          {X_INPUT_GAMEPAD_B, 0x5801},
++      {X_INPUT_GAMEPAD_X, 0x5802},          {X_INPUT_GAMEPAD_Y, 0x5803},
++      {X_INPUT_GAMEPAD_RIGHT_SHOULDER, 0x5804}, {X_INPUT_GAMEPAD_LEFT_SHOULDER, 0x5805},
++      {X_INPUT_GAMEPAD_DPAD_UP, 0x5810},    {X_INPUT_GAMEPAD_DPAD_DOWN, 0x5811},
++      {X_INPUT_GAMEPAD_DPAD_LEFT, 0x5812},  {X_INPUT_GAMEPAD_DPAD_RIGHT, 0x5813},
++      {X_INPUT_GAMEPAD_START, 0x5814},      {X_INPUT_GAMEPAD_BACK, 0x5815},
++      {X_INPUT_GAMEPAD_LEFT_THUMB, 0x5816}, {X_INPUT_GAMEPAD_RIGHT_THUMB, 0x5817},
++  };
++  bool owned = false;
++  for (uint32_t pad = 0; pad < 4; ++pad) {
++    if ((user_index != 0xFF && pad != user_index) || !ScriptOwnsPad(pad)) {
++      continue;
++    }
++    owned = true;
++    X_INPUT_STATE state = {};
++    ScriptState(pad, &state);
++    auto& script = Script();
++    std::lock_guard lock(script.mutex);
++    const uint16_t now = state.gamepad.buttons;
++    for (const auto& [bit, vk] : kKeys) {
++      const bool down = now & bit, was = script.key_buttons[pad] & bit;
++      if (down == was) {
++        continue;
++      }
++      script.key_buttons[pad] ^= bit;
++      if (out) {
++        std::memset(out, 0, sizeof(*out));
++        out->virtual_key = vk;
++        out->flags = down ? 0x1 : 0x2;  // XINPUT_KEYSTROKE_KEYDOWN / KEYUP
++        out->user_index = static_cast<uint8_t>(pad);
++      }
++      return X_ERROR_SUCCESS;
++    }
++  }
++  return owned ? X_ERROR_EMPTY : X_ERROR_DEVICE_NOT_CONNECTED;
++}
++
+ }  // namespace
+ 
+ InputSystem::InputSystem(rex::ui::Window* window) : window_(window) {}
+@@ -62,6 +292,7 @@ X_STATUS InputSystem::Setup() {
  }
  
  void InputSystem::Shutdown() {
@@ -10459,7 +10823,7 @@ index 40740ee..ec46e0e 100644
    // device_owners_ holds raw driver pointers.
    devices_.clear();
    device_owners_.clear();
-@@ -86,6 +87,7 @@ void InputSystem::SetActiveCallback(std::function<bool()> callback) {
+@@ -86,6 +317,7 @@ void InputSystem::SetActiveCallback(std::function<bool()> callback) {
  }
  
  void InputSystem::SetDeviceAssignment(std::unique_ptr<DeviceAssignment> assignment) {
@@ -10467,15 +10831,29 @@ index 40740ee..ec46e0e 100644
    assignment_ = std::move(assignment);
    if (assignment_) {
      assignment_->OnDevicesChanged(devices_);
-@@ -219,6 +221,7 @@ DeviceId InputSystem::ChooseDeviceForUser(uint32_t user_index) const {
+@@ -219,6 +451,21 @@ DeviceId InputSystem::ChooseDeviceForUser(uint32_t user_index) const {
  X_RESULT InputSystem::GetCapabilities(uint32_t user_index, uint32_t flags,
                                        X_INPUT_CAPABILITIES* out_caps) {
    SCOPE_profile_cpu_f("hid");
++  if (out_caps && ScriptOwnsPad(user_index)) {
++    // A scripted pad reports a standard gamepad, like the NOP driver.
++    std::memset(out_caps, 0, sizeof(*out_caps));
++    out_caps->type = 0x01;
++    out_caps->sub_type = 0x01;
++    out_caps->gamepad.buttons = 0xFFFF;
++    out_caps->gamepad.left_trigger = 0xFF;
++    out_caps->gamepad.right_trigger = 0xFF;
++    out_caps->gamepad.thumb_lx = static_cast<int16_t>(0x7FFF);
++    out_caps->gamepad.thumb_ly = static_cast<int16_t>(0x7FFF);
++    out_caps->gamepad.thumb_rx = static_cast<int16_t>(0x7FFF);
++    out_caps->gamepad.thumb_ry = static_cast<int16_t>(0x7FFF);
++    return X_ERROR_SUCCESS;
++  }
 +  std::lock_guard<std::recursive_mutex> lock(devices_mutex_);
    if (!out_caps || !assignment_) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
    }
-@@ -269,8 +272,13 @@ void InputSystem::UpdateConnectedUser(uint32_t user_index, bool connected) {
+@@ -269,8 +516,16 @@ void InputSystem::UpdateConnectedUser(uint32_t user_index, bool connected) {
                                            {caps.gamepad.thumb_rx, caps.gamepad.thumb_ry}};
  }
  
@@ -10485,11 +10863,14 @@ index 40740ee..ec46e0e 100644
 +
  X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
    SCOPE_profile_cpu_f("hid");
++  if (ScriptState(user_index, out_state)) {
++    return X_ERROR_SUCCESS;
++  }
 +  std::lock_guard<std::recursive_mutex> lock(devices_mutex_);
  
    // A dialog owns the controller.
    if (ui_input_blockers_.load() > 0) {
-@@ -290,11 +298,17 @@ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
+@@ -290,11 +545,17 @@ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
      out_state->gamepad.buttons = static_cast<uint16_t>(buttons & ~consumed_buttons_[user_index]);
    }
  
@@ -10507,7 +10888,7 @@ index 40740ee..ec46e0e 100644
    if (!assignment_) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
    }
-@@ -343,6 +357,7 @@ void InputSystem::AddUIInputBlocker() {
+@@ -343,6 +604,7 @@ void InputSystem::AddUIInputBlocker() {
  }
  
  void InputSystem::RemoveUIInputBlocker() {
@@ -10515,7 +10896,7 @@ index 40740ee..ec46e0e 100644
    // Whatever is held right now stays masked until released, so the press that
    // dismissed the dialog is not also read as a press in the game.
    X_INPUT_STATE state = {};
-@@ -417,6 +432,7 @@ X_INPUT_VIBRATION InputSystem::ModifyVibrationLevel(const X_INPUT_VIBRATION* vib
+@@ -417,6 +679,7 @@ X_INPUT_VIBRATION InputSystem::ModifyVibrationLevel(const X_INPUT_VIBRATION* vib
  
  X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration) {
    SCOPE_profile_cpu_f("hid");
@@ -10523,10 +10904,13 @@ index 40740ee..ec46e0e 100644
    if (!assignment_ || !vibration) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
    }
-@@ -462,6 +478,7 @@ X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration
+@@ -462,6 +725,10 @@ X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration
  X_RESULT InputSystem::GetKeystroke(uint32_t user_index, uint32_t flags,
                                     X_INPUT_KEYSTROKE* out_keystroke) {
    SCOPE_profile_cpu_f("hid");
++  if (X_RESULT r = ScriptKeystroke(user_index, out_keystroke); r != X_ERROR_DEVICE_NOT_CONNECTED) {
++    return r;
++  }
 +  std::lock_guard<std::recursive_mutex> lock(devices_mutex_);
    if (!assignment_) {
      return X_ERROR_DEVICE_NOT_CONNECTED;
@@ -10786,6 +11170,28 @@ index bd5de65..f1aee1a 100644
        if (!basic_result) {
          result = X_STATUS_UNSUCCESSFUL;
        }
+diff --git a/src/system/achievement_manager.cpp b/src/system/achievement_manager.cpp
+index f4e0efd..8941a5b 100644
+--- a/src/system/achievement_manager.cpp
++++ b/src/system/achievement_manager.cpp
+@@ -77,7 +77,7 @@ void AchievementManager::ReplaceAchievements(std::vector<AchievementInfo> achiev
+ 
+ bool AchievementManager::LoadMetadataFile(const std::filesystem::path& path) {
+   try {
+-    auto table = toml::parse_file(path.string());
++    auto table = toml::parse_file(path.u8string());
+     const auto* entries = table["achievements"].as_array();
+     if (!entries) {
+       REXSYS_WARN("Achievement metadata has no [[achievements]] entries: {}", path.string());
+@@ -228,7 +228,7 @@ void AchievementManager::LoadUnlockState() {
+ 
+   bool migrated = false;
+   try {
+-    auto table = toml::parse_file(save_path.string());
++    auto table = toml::parse_file(save_path.u8string());
+     std::lock_guard lock(mutex_);
+     if (const auto* unlocked = table["unlocked"].as_table()) {
+       for (const auto& [key, value] : *unlocked) {
 diff --git a/src/system/function_dispatcher.cpp b/src/system/function_dispatcher.cpp
 index bd43109..2bb1ca4 100644
 --- a/src/system/function_dispatcher.cpp
@@ -12115,10 +12521,10 @@ index 4ede107..25b93c3 100644
    ImGui::SetNextItemWidth(-1.0f);
    ImGui::InputText("##search", search_buf_, sizeof(search_buf_));
 diff --git a/src/ui/rex_app.cpp b/src/ui/rex_app.cpp
-index 9ff54e8..4634a3e 100644
+index 9ff54e8..24eabf9 100644
 --- a/src/ui/rex_app.cpp
 +++ b/src/ui/rex_app.cpp
-@@ -107,6 +107,13 @@ bool ReXApp::OnInitialize() {
+@@ -107,33 +107,48 @@ bool ReXApp::OnInitialize() {
  bool ReXApp::SetupEnvironment() {
    auto exe_dir = rex::filesystem::GetExecutableFolder();
  
@@ -12132,9 +12538,18 @@ index 9ff54e8..4634a3e 100644
    std::filesystem::path game_dir;
    std::string game_data_cvar = REXCVAR_GET(game_data_root);
    if (!game_data_cvar.empty()) {
-@@ -119,7 +126,13 @@ bool ReXApp::SetupEnvironment() {
+-    game_dir = game_data_cvar;
++    // Cvars hold UTF-8 (wide argv / TOML); a plain path(std::string) would read
++    // them in the ANSI codepage and mangle non-ASCII folders.
++    game_dir = rex::to_path(game_data_cvar);
+   }
+ 
+   // User data: cvar override, or platform user directory
+   std::filesystem::path user_dir;
+   std::string user_data_cvar = REXCVAR_GET(user_data_root);
    if (!user_data_cvar.empty()) {
-     user_dir = user_data_cvar;
+-    user_dir = user_data_cvar;
++    user_dir = rex::to_path(user_data_cvar);
    } else {
 -    user_dir = rex::filesystem::GetUserFolder() / GetName();
 +    // Portable layout: saves live in ..\saves next to the exe's folder when it exists.
@@ -12147,7 +12562,70 @@ index 9ff54e8..4634a3e 100644
    }
  
    // Update data: cvar override, or empty (opt-in)
-@@ -255,6 +268,28 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
+   std::filesystem::path update_dir;
+   std::string update_data_cvar = REXCVAR_GET(update_data_root);
+   if (!update_data_cvar.empty()) {
+-    update_dir = update_data_cvar;
++    update_dir = rex::to_path(update_data_cvar);
+   }
+ 
+   // Cache: cvar override, or user_dir/cache
+   std::filesystem::path cache_dir;
+   std::string cache_root_cvar = REXCVAR_GET(cache_root);
+   if (!cache_root_cvar.empty()) {
+-    cache_dir = cache_root_cvar;
++    cache_dir = rex::to_path(cache_root_cvar);
+   } else {
+     cache_dir = user_dir / "cache";
+   }
+@@ -141,7 +156,7 @@ bool ReXApp::SetupEnvironment() {
+   std::filesystem::path metadata_dir;
+   std::string metadata_root_cvar = REXCVAR_GET(metadata_root);
+   if (!metadata_root_cvar.empty()) {
+-    metadata_dir = metadata_root_cvar;
++    metadata_dir = rex::to_path(metadata_root_cvar);
+   }
+ 
+   PathConfig path_config{game_dir,  user_dir,     update_dir,
+@@ -178,21 +193,21 @@ bool ReXApp::SetupEnvironment() {
+   OnPostInitLogging();
+ 
+   if (std::filesystem::exists(config_path_))
+-    REXLOG_DEBUG("Loaded config: {}", config_path_.filename().string());
++    REXLOG_DEBUG("Loaded config: {}", rex::path_to_utf8(config_path_.filename()));
+ 
+   REXLOG_DEBUG("{} starting", GetName());
+   if (!game_data_root_.empty()) {
+-    REXLOG_DEBUG("  Game directory: {}", game_data_root_.string());
++    REXLOG_DEBUG("  Game directory: {}", rex::path_to_utf8(game_data_root_));
+   }
+   if (!user_data_root_.empty()) {
+-    REXLOG_DEBUG("  User data:      {}", user_data_root_.string());
++    REXLOG_DEBUG("  User data:      {}", rex::path_to_utf8(user_data_root_));
+   }
+   if (!update_data_root_.empty()) {
+-    REXLOG_DEBUG("  Update data:    {}", update_data_root_.string());
++    REXLOG_DEBUG("  Update data:    {}", rex::path_to_utf8(update_data_root_));
+   }
+-  REXLOG_DEBUG("  Cache root:     {}", cache_root_.string());
++  REXLOG_DEBUG("  Cache root:     {}", rex::path_to_utf8(cache_root_));
+   if (!metadata_root_.empty()) {
+-    REXLOG_DEBUG("  Metadata root:  {}", metadata_root_.string());
++    REXLOG_DEBUG("  Metadata root:  {}", rex::path_to_utf8(metadata_root_));
+   }
+ 
+   return true;
+@@ -206,7 +221,8 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
+     return false;
+   }
+   if (!std::filesystem::is_directory(paths.game_data_root)) {
+-    auto msg = fmt::format("--game_data_root does not exist: {}", paths.game_data_root.string());
++    auto msg = fmt::format("--game_data_root does not exist: {}",
++                           rex::path_to_utf8(paths.game_data_root));
+     REXLOG_ERROR("{}", msg);
+     rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, msg);
+     return false;
+@@ -255,6 +271,28 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
          return true;
        return !imgui_drawer_->GetIO().WantCaptureMouse;
      });
@@ -12176,7 +12654,16 @@ index 9ff54e8..4634a3e 100644
    }
  
    std::string xex_image = "game:\\default.xex";
-@@ -353,7 +388,9 @@ bool ReXApp::SetupPresentation() {
+@@ -274,7 +312,7 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
+     std::replace(host_tail.begin(), host_tail.end(), '\\', '/');
+     auto xex_host = paths.game_data_root / host_tail;
+     if (!std::filesystem::is_regular_file(xex_host)) {
+-      auto msg = fmt::format("Entrypoint XEX not found: {}", xex_host.string());
++      auto msg = fmt::format("Entrypoint XEX not found: {}", rex::path_to_utf8(xex_host));
+       REXLOG_ERROR("{}", msg);
+       rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, msg);
+       return false;
+@@ -353,7 +391,9 @@ bool ReXApp::SetupPresentation() {
    auto on_window_cvar = [this](const char* name, std::function<void(std::string_view)> apply) {
      rex::cvar::RegisterChangeCallback(
          name, [this, apply = std::move(apply)](std::string_view, std::string_view value) {
@@ -12187,7 +12674,7 @@ index 9ff54e8..4634a3e 100644
              if (window_) {
                apply(value);
              }
-@@ -436,12 +473,37 @@ void ReXApp::SetupOverlays(rex::ui::Presenter* presenter, rex::ui::ImmediateDraw
+@@ -436,12 +476,37 @@ void ReXApp::SetupOverlays(rex::ui::Presenter* presenter, rex::ui::ImmediateDraw
        console_overlay_ = std::make_unique<ui::ConsoleDialog>(imgui_drawer_.get(), log_sink_);
      }
    });
@@ -12227,7 +12714,7 @@ index 9ff54e8..4634a3e 100644
    });
    rex::ui::RegisterBind("bind_achievements", "F7", "Toggle achievements overlay", [this] {
      if (achievements_overlay_) {
-@@ -588,6 +650,7 @@ void ReXApp::OnDestroy() {
+@@ -588,6 +653,7 @@ void ReXApp::OnDestroy() {
    rex::ui::UnregisterBind("bind_debug_overlay");
    rex::ui::UnregisterBind("bind_console");
    rex::ui::UnregisterBind("bind_settings");

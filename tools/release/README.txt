@@ -30,24 +30,25 @@ GRAPHICS
   the picture is drawn, and how hard your GPU works.
   Window / output size is separate: the game window, or your screen in borderless fullscreen (F11).
   The picture is scaled to fit it, so a higher render scale on a smaller screen still looks sharper.
-  Backend: Vulkan is the default and the better tested. Direct3D 12 works too. If something looks wrong on one, try the other.
+  Backend: Vulkan is the default and the better tested. Direct3D 12 works but has had less play time
+  at 2x and above. If something looks wrong on one, try the other.
 
-WHAT'S NEW IN 1.0.6
-  - Render scale 2x and above: created fighters (skin, face, portraits, shirts) no longer turn black
-    or to colored noise, and damage and blood on the face and mat show up.
-  - The black screen when a fighter is rocked is fixed (Vulkan).
-  - Career mode: no crash at the end of the first real fight, and created-fighter pictures are right.
-  - Fewer hitches when saving or applying clothes in the fighter creator.
-  - Guard against a crash in Liddell vs Quarry (PRIDE) after loading the match several times.
-  - Without the mod pack, some disc fighters (for example Brock Lesnar) could vanish from fighter select. Fixed.
-  - Mod pack 1.0.6: no shin line on UFC 2009 fighters, walkout shirts fit, UFC 2010 fighters wear their own
-    shirt designs, changed ratings apply to existing saves.
+WHAT'S NEW IN 1.0.7
+  - Added fighters are their real size in the cage (Tim Sylvia towers over Cain, Shaq is huge),
+    and the tale of the tape shows their own height, age, weight, reach and flag.
+  - UFC 2009 fighters' skin tone fixed (no more orange), no holes at the shirt armpits, gloves fixed.
+  - PRIDE ring: added fighters no longer look washed out under the lights.
+  - Steady skin lighting (on by default, launcher Settings): no dark tan look when a clinch or
+    takedown starts. Untick it for the original game's look.
+  - Goldberg can call added fighters by name during their walkouts (Jardine, Arlovski, Sylvia...).
+  - Fixed a crash at startup when the game folder has non-English letters in its name.
 
 KNOWN ISSUES
   - Select-screen pictures of fighters from UFC 2009/2010 are framed closer than the rest.
   - The created-fighter card portrait is a little low-res.
-  - At 3x, opponent sponsor logos are drawn at 1x.
   - 8 added fighters skip the hometown line in their intro.
+  - Goldberg names only one fighter in the walkouts, and not every fight.
+  - Career mode: opponents' shorts logos and tattoos can look pixelated at higher render scales.
   - Created-fighter portraits saved by older versions stay garbled; make the portrait again.
   - Bloom off in Settings currently has no visible effect.
 

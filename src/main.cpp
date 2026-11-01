@@ -17,5 +17,6 @@
 #include "position_guard.h"
 #include "acce_trace.h"
 #include "skip_trace.h"
+#include "steady_skin_light.h"
 
 REX_DEFINE_APP(ufc3, Ufc3App::Create)

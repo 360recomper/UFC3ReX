@@ -11,7 +11,10 @@
 #include <string>
 
 #include <rex/cvar.h>
+#include <rex/filesystem.h>
 
+// Path cvars hold UTF-8; build paths with rex::to_path, never path(std::string)
+// (that reads the ANSI codepage and breaks non-ASCII folders, GitHub #3).
 namespace ufc3_paths {
 
 inline std::filesystem::path& ResolvedGameDataRoot() {
@@ -26,12 +29,12 @@ inline std::filesystem::path& ResolvedUserDataRoot() {
 
 inline std::filesystem::path GameDataRoot() {
   std::string cvar = rex::cvar::GetFlagByName("game_data_root");
-  return cvar.empty() ? ResolvedGameDataRoot() : std::filesystem::path(cvar);
+  return cvar.empty() ? ResolvedGameDataRoot() : rex::to_path(cvar);
 }
 
 inline std::filesystem::path UserDataRoot() {
   std::string cvar = rex::cvar::GetFlagByName("user_data_root");
-  return cvar.empty() ? ResolvedUserDataRoot() : std::filesystem::path(cvar);
+  return cvar.empty() ? ResolvedUserDataRoot() : rex::to_path(cvar);
 }
 
 }  // namespace ufc3_paths

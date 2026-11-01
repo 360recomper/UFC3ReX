@@ -37,6 +37,7 @@ public class SettingsTab : ILauncherTab
         col.Controls.Add(Check("ufc3_no_bloom", "Bloom off", false, "Has no visible effect: fights in this game don't use bloom."));
         col.Controls.Add(Check("ufc3_no_dof", "Depth of field off", false, "Removes the background blur."));
         col.Controls.Add(Check("ufc3_cutscene_60", "60 fps walkouts, intros and replays", false, "The game runs these at 30 fps. Experimental."));
+        col.Controls.Add(Check("ufc3_steady_skin_light", "Steady skin lighting", true, "Skin keeps its stand-up tone on clinch and ground cameras. Off = the original game's darker top-down look."));
 
         col.Controls.Add(Ui.Text("Unlocks", true));
         col.Controls.Add(Check("ufc3_unlock_all", "Unlock everything", false, "Every fighter and unlock-shop item counts as unlocked. Your save is not changed."));

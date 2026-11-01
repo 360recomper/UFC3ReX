@@ -154,7 +154,7 @@ inline const std::vector<uint8_t>& ModPlpm() {
     REXLOG_INFO("[roster] no mods (mods_enabled={}, mods_root='{}'); nothing to merge", enabled, mods);
     return plpm;
   }
-  auto path = std::filesystem::path(mods) / "DAT" / "static_x.mpc";
+  auto path = rex::to_path(mods) / "DAT" / "static_x.mpc";
   plpm = ReadPlpm(path);
   if (Records(plpm).empty()) {
     REXLOG_INFO("[roster] no usable plpm in {}; nothing to merge", path.string());
@@ -192,11 +192,16 @@ inline const std::unordered_set<uint32_t>& DiscIds() {
 
 // Rating bytes: the 22 attributes and the overall (FINDINGS-ratings.md).
 constexpr uint32_t kRatingsOff = 0x30, kRatingsLen = 0x16, kOverallOff = 0x109;
+// Height: u16, cm in the top 10 bits (FINDINGS-height-scale.md).
+constexpr uint32_t kHeightOff = 0x4C;
+// Height as feet*100 + inches in the top 10 bits of the u32 here (Cain 601 = 6'1");
+// the tale of the tape and walkout card show this one (sub_829A3520).
+constexpr uint32_t kHeightFtInOff = 0x48;
 
 // A disc fighter keeps the save's record, so a mod rating override never reached
 // him (Liddell stayed 85 while mod-added Classic Tito showed 90). Copy the mod's
-// ratings onto the save's record, but only where the mod changed them from the
-// disc, so everything else in the save's record stays. Returns true if it did.
+// ratings (and height) onto the save's record, but only where the mod changed them
+// from the disc, so everything else in the save's record stays. Returns true if it did.
 inline bool ApplyModRatings(uint8_t* rec, uint32_t id) {
   static std::unordered_map<uint32_t, const uint8_t*> mod, disc;
   static bool loaded = false;
@@ -210,11 +215,23 @@ inline bool ApplyModRatings(uint8_t* rec, uint32_t id) {
   if (m == mod.end() || d == disc.end()) return false;
   const uint8_t* mr = m->second;
   const uint8_t* dr = d->second;
+  bool height = false;
+  if (std::memcmp(mr + kHeightOff, dr + kHeightOff, 2) != 0 && std::memcmp(rec + kHeightOff, mr + kHeightOff, 2) != 0) {
+    std::memcpy(rec + kHeightOff, mr + kHeightOff, 2);
+    height = true;
+  }
+  // The tale of the tape shows the feet/inches field (top 10 bits), not the cm.
+  auto ft_in = [](const uint8_t* r) { return r[kHeightFtInOff] << 2 | r[kHeightFtInOff + 1] >> 6; };
+  if (ft_in(mr) != ft_in(dr) && ft_in(rec) != ft_in(mr)) {
+    rec[kHeightFtInOff] = mr[kHeightFtInOff];
+    rec[kHeightFtInOff + 1] = uint8_t((rec[kHeightFtInOff + 1] & 0x3F) | (mr[kHeightFtInOff + 1] & 0xC0));
+    height = true;
+  }
   if (std::memcmp(mr + kRatingsOff, dr + kRatingsOff, kRatingsLen) == 0 && mr[kOverallOff] == dr[kOverallOff]) {
-    return false;
+    return height;
   }
   if (std::memcmp(rec + kRatingsOff, mr + kRatingsOff, kRatingsLen) == 0 && rec[kOverallOff] == mr[kOverallOff]) {
-    return false;
+    return height;
   }
   std::memcpy(rec + kRatingsOff, mr + kRatingsOff, kRatingsLen);
   rec[kOverallOff] = mr[kOverallOff];
@@ -491,6 +508,18 @@ extern "C" REX_FUNC(sub_82EDA778) {
   __imp__sub_82EDA778(ctx, base);
   if (ufc3_legacy_roster::Trace(n)) {
     REXLOG_INFO("[roster] lookup id {} -> {:08X} (lr {:08X})", id, ctx.r3.u32, lr);
+  }
+}
+
+// Fighter stat getter (field index in r4), from a UI field-descriptor builder.
+// Not the tale of the tape's height: that is plpm +0x48 (sub_829A3520), see
+// kHeightFtInOff. Kept as a trace of which fields a screen asks for.
+extern "C" REX_FUNC(sub_822C5050) {
+  static uint32_t n = 0;
+  uint32_t obj = ctx.r3.u32, field = ctx.r4.u32 & 0xFFFF, lr = uint32_t(ctx.lr);
+  __imp__sub_822C5050(ctx, base);
+  if (ufc3_legacy_roster::Trace(n)) {
+    REXLOG_INFO("[roster] stat {} of {:08X} = {} (lr {:08X})", field, obj, ctx.r3.s32, lr);
   }
 }
 

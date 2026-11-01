@@ -72,7 +72,9 @@ class Ufc3App : public rex::ReXApp {
     }
     if (rex::cvar::GetFlagByName("mods_root").empty() &&
         std::filesystem::is_directory(exe_dir / "mods", ec)) {
-      rex::cvar::SetFlagByName("mods_root", (exe_dir / "mods").string());
+      // Cvars are UTF-8: path::string() is the ANSI codepage, and the SDK's
+      // to_path() threw utf8::invalid_utf8 on it (GitHub #3: a Turkish "Desktop" folder).
+      rex::cvar::SetFlagByName("mods_root", rex::path_to_utf8(exe_dir / "mods"));
     }
     ufc3_paths::ResolvedGameDataRoot() = paths.game_data_root;
     ufc3_paths::ResolvedUserDataRoot() = paths.user_data_root;

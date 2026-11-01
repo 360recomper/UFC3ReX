@@ -96,9 +96,9 @@ struct Config {
 
 inline std::filesystem::path MusicDir() {
   std::string dir = REXCVAR_GET(ufc3_fighter_music_dir);
-  if (!dir.empty()) return std::filesystem::path(dir);
+  if (!dir.empty()) return rex::to_path(dir);
   std::string mods = rex::cvar::GetFlagByName("mods_root");
-  if (!mods.empty()) return std::filesystem::path(mods) / "music";
+  if (!mods.empty()) return rex::to_path(mods) / "music";
   return rex::filesystem::GetExecutableFolder() / "music";
 }
 
@@ -126,13 +126,13 @@ inline void Refresh(Config& cfg) {
   toml::table tbl;
 #if TOML_EXCEPTIONS
   try {
-    tbl = toml::parse_file(cfg.file.string());
+    tbl = toml::parse_file(cfg.file.u8string());
   } catch (const toml::parse_error& e) {
     REXLOG_WARN("[fighter_music] {}: {}", cfg.file.string(), e.description());
     return;
   }
 #else
-  auto result = toml::parse_file(cfg.file.string());
+  auto result = toml::parse_file(cfg.file.u8string());
   if (!result) {
     REXLOG_WARN("[fighter_music] {}: {}", cfg.file.string(), result.error().description());
     return;
@@ -202,7 +202,7 @@ inline std::optional<std::filesystem::path> TrackFor(Config& cfg, uint32_t fight
   auto it = cfg.tracks.find(fighter);
   const std::string& name = it != cfg.tracks.end() ? it->second : cfg.any;
   if (name.empty()) return std::nullopt;
-  std::filesystem::path path = std::filesystem::path(name);
+  std::filesystem::path path = rex::to_path(name);
   if (path.is_relative()) path = cfg.dir / path;
   std::error_code ec;
   if (!std::filesystem::is_regular_file(path, ec)) {
