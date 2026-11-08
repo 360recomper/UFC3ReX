@@ -41,6 +41,10 @@ GRAPHICS
   than the window (for example 1x on a 1080p or bigger screen); a picture as big as the window is
   not changed.
 
+WHAT'S NEW IN 1.1.1
+  - Fix: updating from 1.0.7 with the launcher's update button now gets the native renderer's
+    pipeline seed (it is built into ufc3.exe), so there are no extra first-use stutters.
+
 WHAT'S NEW IN 1.1.0
   - Native renderer, on by default: the game draws through its own Direct3D 12 renderer instead of
     the emulated GPU path. Optional FSR 1 upscaling, and a pipeline seed for fewer first-use stutters.

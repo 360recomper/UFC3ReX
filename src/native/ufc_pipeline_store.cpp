@@ -55,6 +55,9 @@ REXCVAR_DECLARE(std::string, ufc3_shader_cache);
 
 namespace bd::gpu {
 
+extern const unsigned char kEmbeddedPipelineSeed[];
+extern const std::size_t kEmbeddedPipelineSeedSize;
+
 namespace {
 
 constexpr u32 kMagic = 0x50525653;  // "SVRP"
@@ -185,6 +188,25 @@ bool ReadRecords(const std::filesystem::path &path, std::vector<PipelineState> &
   return ok;
 }
 
+// The seed compiled into the exe (v1.1.1, cmake/native_renderer.cmake): launchers <= 1.1.0 update only
+// exe/dll/txt/md files, so an auto-update never brought pipelines_seed.bin. Same format as the file.
+bool ReadEmbeddedRecords(std::vector<PipelineState> &out) {
+  if (kEmbeddedPipelineSeedSize < sizeof(FileHeader))
+    return false;
+  FileHeader header;
+  std::memcpy(&header, kEmbeddedPipelineSeed, sizeof(header));
+  if (header.magic != kMagic || header.version != kVersion || header.record_size != sizeof(PipelineState))
+    return false;
+  for (size_t at = sizeof(header); at + sizeof(PipelineState) <= kEmbeddedPipelineSeedSize;
+       at += sizeof(PipelineState)) {
+    PipelineState s;
+    std::memcpy(&s, kEmbeddedPipelineSeed + at, sizeof(s));
+    if (g_stored.insert(HashPipelineState(s)).second)
+      out.push_back(s);
+  }
+  return true;
+}
+
 }  // namespace
 
 // Stored pipelines for pso_recorder's replay list (ReplayBootCache), hashes in the pointer slots.
@@ -192,9 +214,23 @@ std::vector<PipelineState> SvrLoadPipelineStore() {
   std::vector<PipelineState> out;
   std::lock_guard lock(g_store_mutex);
   if (REXCVAR_GET(ufc3_native_pso_seed)) {
+    // A seed file beside the shader cache wins (a newer seed without a new exe); else the embedded one.
     const auto seed = SeedPath();
-    if (!ReadRecords(seed, out))
-      BD_WARN("pso: {} is from another version, not used", seed.string());
+    std::error_code ec;
+    bool used = false;
+    if (std::filesystem::exists(seed, ec)) {
+      if (ReadRecords(seed, out))
+        used = true;
+      else
+        BD_WARN("pso: {} is from another version, not used", seed.string());
+    }
+    if (used) {
+      BD_INFO("pso: seed: file {} ({} pipelines)", seed.string(), out.size());
+    } else if (ReadEmbeddedRecords(out)) {
+      BD_INFO("pso: seed: embedded ({} pipelines, {} bytes)", out.size(), kEmbeddedPipelineSeedSize);
+    } else {
+      BD_WARN("pso: seed: none (embedded seed is from another version)");
+    }
   }
   const size_t from_seed = out.size();
   if (!ReadRecords(StorePath(), out)) {

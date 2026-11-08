@@ -150,6 +150,22 @@ function(ufc3_add_native_renderer target)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${UFC3_DXC_DIR}/dxcompiler.dll" "${UFC3_DXC_DIR}/dxil.dll" "$<TARGET_FILE_DIR:${target}>"
         VERBATIM)
+    # v1.1.1: the seed is also compiled into the exe (ufc3_seed_embedded.cpp, generated at configure time),
+    # because launchers <= 1.1.0 update only exe/dll/txt/md files and skipped pipelines_seed.bin.
+    # A pipelines_seed.bin beside the shader cache still wins (newer seeds without a rebuild).
+    set(seed_bin "${UFC3_NATIVE_ROOT}/config/native/pipelines_seed.bin")
+    set(seed_cpp "${UFC3_NATIVE_GEN}/ufc3_seed_embedded.cpp")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${seed_bin}")
+    file(READ "${seed_bin}" seed_hex HEX)
+    file(SIZE "${seed_bin}" seed_size)
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," seed_bytes "${seed_hex}")
+    file(WRITE "${seed_cpp}.tmp"
+        "// Generated from config/native/pipelines_seed.bin by cmake/native_renderer.cmake. Do not edit.\n"
+        "#include <cstddef>\nnamespace bd::gpu {\n"
+        "extern const unsigned char kEmbeddedPipelineSeed[] = {${seed_bytes}};\n"
+        "extern const std::size_t kEmbeddedPipelineSeedSize = ${seed_size};\n}\n")
+    file(COPY_FILE "${seed_cpp}.tmp" "${seed_cpp}" ONLY_IF_DIFFERENT)
+    target_sources(${target} PRIVATE "${seed_cpp}")
     # Pipeline seed (NR-9h, NR-15b): read from beside the shader cache, which defaults to beside the exe.
     # Made by tools/nr_pso_seed.py from test logs; keyed by shader content hashes, no game data in it.
     add_custom_command(TARGET ${target} POST_BUILD
