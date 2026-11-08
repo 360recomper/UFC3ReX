@@ -53,8 +53,8 @@
 #include "mod_pack.h"
 
 REXCVAR_DEFINE_BOOL(ufc3_attire_trace, false, "ufc3", "Log attire picker calls ([attire] lines; debug)");
-REXCVAR_DEFINE_BOOL(ufc3_attire_picker, false, "ufc3",
-                    "L3 on SELECT FIGHTER switches attire (held for the release with real alternates: most ports have two identical attires)");
+REXCVAR_DEFINE_BOOL(ufc3_attire_picker, true, "ufc3",
+                    "L3 on SELECT FIGHTER switches attire (needs the mod pack marker; off without it whatever this says)");
 REXCVAR_DEFINE_BOOL(ufc3_select_hints, true, "ufc3", "SELECT FIGHTER button legend also lists R3 bare knuckle (and L3 attire with ufc3_attire_picker)");
 
 namespace ufc3_attire {

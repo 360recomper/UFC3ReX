@@ -41,6 +41,10 @@ GRAPHICS
   than the window (for example 1x on a 1080p or bigger screen); a picture as big as the window is
   not changed.
 
+WHAT'S NEW IN 1.1.2
+  - Fix: with the mod pack, L3 on SELECT FIGHTER now cycles attires out of the box (the attire
+    picker setting was off by default, so it only worked if you turned it on yourself).
+
 WHAT'S NEW IN 1.1.1
   - Fix: updating from 1.0.7 with the launcher's update button now gets the native renderer's
     pipeline seed (it is built into ufc3.exe), so there are no extra first-use stutters.
