@@ -1,0 +1,21 @@
+diff --git a/XenosRecomp/shader_recompiler.cpp b/XenosRecomp/shader_recompiler.cpp
+--- a/XenosRecomp/shader_recompiler.cpp
++++ b/XenosRecomp/shader_recompiler.cpp
+@@ -1616,7 +1616,7 @@
+ 
+             if (constantInfo->registerCount > 1)
+             {
+-                uint32_t tailCount = (isPixelShader ? 224 : 256) - constantInfo->registerIndex;
++                uint32_t tailCount = 256 - constantInfo->registerIndex;
+ 
+                 println("#define {}(INDEX) select((INDEX) < {}, vk::RawBufferLoad<float4>(g_PushConstants.{}ShaderConstants + ({} + min(INDEX, {})) * 16, 0x10), 0.0)",
+                     constantName, tailCount, shaderName, constantInfo->registerIndex.get(), tailCount - 1);
+@@ -1708,7 +1708,7 @@
+ 
+             if (constantInfo->registerCount > 1)
+             {
+-                uint32_t tailCount = (isPixelShader ? 224 : 256) - constantInfo->registerIndex;
++                uint32_t tailCount = 256 - constantInfo->registerIndex;
+                 println("#define {0}(INDEX) select((INDEX) < {1}, {0}[min(INDEX, {2})], 0.0)", constantName, tailCount, tailCount - 1);
+             }
+         }

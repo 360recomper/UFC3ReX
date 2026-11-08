@@ -53,7 +53,8 @@ public class SetupTab : ILauncherTab
         var prog = new Progress<(string name, double frac)>(p =>
         {
             bar.Value = (int)Math.Clamp(p.frac * 1000, 0, 1000);
-            current.Text = p.name.Length == 0 ? "" : $"{p.frac * 100:0}%  {p.name}";
+            // frac < 0: a step with no percentage to show.
+            current.Text = p.name.Length == 0 ? "" : p.frac < 0 ? p.name : $"{p.frac * 100:0}%  {p.name}";
         });
         try { status.Text = await Task.Run(() => work(prog, cts.Token)); }
         catch (OperationCanceledException) { status.Text = "Cancelled. Choose the same file again to continue where it stopped."; }
@@ -74,7 +75,7 @@ public class SetupTab : ILauncherTab
         return Run((p, ct) =>
         {
             Setup.ImportIso(iso, Paths.Assets, p, ct);
-            return "Game files installed. Open the Play tab to start.";
+            return Setup.FinishImport(Paths.Assets, p, ct);
         });
     }
 

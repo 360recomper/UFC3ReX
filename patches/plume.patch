@@ -1,0 +1,105 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1cbc506..1721b5c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -21,6 +21,8 @@ cmake_dependent_option(PLUME_SDL_VULKAN_ENABLED "Enable SDL Vulkan integration"
+ cmake_dependent_option(PLUME_D3D12_AGILITY_SDK_ENABLED "Enable D3D12 Agility SDK" OFF WIN32 OFF)
+ cmake_dependent_option(PLUME_APPLE_RETINA_ENABLED "Enable Apple Retina display support" ON APPLE ON)
+ option(PLUME_BUILD_EXAMPLES "Build example applications" OFF)
++# SvR 2008: lets a Vulkan-only Windows build skip D3D12 (its backend needs Windows SDK 10.0.26100+ headers).
++cmake_dependent_option(PLUME_D3D12_ENABLED "Build the D3D12 backend" ON WIN32 OFF)
+ 
+ # Windows-specific definitions
+ if(WIN32)
+@@ -67,7 +69,7 @@ if(APPLE)
+         plume_apple.mm
+         plume_apple.h
+     )
+-elseif(WIN32)
++elseif(PLUME_D3D12_ENABLED)
+     list(APPEND PLUME_SOURCES
+         plume_d3d12.cpp
+         plume_d3d12.h
+@@ -86,7 +88,7 @@ target_include_directories(plume PUBLIC
+     ${CMAKE_CURRENT_SOURCE_DIR}/contrib/VulkanMemoryAllocator/include
+ )
+ 
+-if(WIN32)
++if(PLUME_D3D12_ENABLED)
+     target_include_directories(plume PUBLIC
+         ${CMAKE_CURRENT_SOURCE_DIR}/contrib/D3D12MemoryAllocator/include
+     )
+diff --git a/plume_d3d12.cpp b/plume_d3d12.cpp
+index dcae4e3..8d7d23d 100644
+--- a/plume_d3d12.cpp
++++ b/plume_d3d12.cpp
+@@ -484,7 +484,8 @@ namespace plume {
+         case RenderHeapType::READBACK:
+             return D3D12_HEAP_TYPE_READBACK;
+         case RenderHeapType::GPU_UPLOAD:
+-            return D3D12_HEAP_TYPE_GPU_UPLOAD;
++            // D3D12_HEAP_TYPE_GPU_UPLOAD, by value: the constant needs Windows SDK 10.0.26100+ headers.
++            return static_cast<D3D12_HEAP_TYPE>(5);
+         default:
+             assert(false && "Unknown heap type.");
+             return D3D12_HEAP_TYPE_DEFAULT;
+@@ -1899,7 +1900,12 @@ namespace plume {
+         // It's required to reset the sample positions before the command list ends.
+         resetSamplePositions();
+ 
+-        d3d->Close();
++        // A list the runtime rejected here only shows up as a removed device at the next present.
++        const HRESULT res = d3d->Close();
++        if (FAILED(res)) {
++            fprintf(stderr, "ID3D12GraphicsCommandList::Close failed with error code 0x%lX.\n", res);
++        }
++
+         open = false;
+         targetFramebuffer = nullptr;
+         targetFramebufferSamplePositionsSet = false;
+@@ -2322,7 +2328,12 @@ namespace plume {
+ 
+         const D3D12_TEXTURE_COPY_LOCATION copyDstLocation = toD3D12(dstLocation);
+         const D3D12_TEXTURE_COPY_LOCATION copySrcLocation = toD3D12(srcLocation);
+-        setSamplePositions(dstLocation.texture);
++        // UFC: a copy into a buffer (a readback) has no destination texture; the source's sample
++        // positions are the ones that count there.
++        const RenderTexture *positionsTexture = (dstLocation.texture != nullptr) ? dstLocation.texture : srcLocation.texture;
++        if (positionsTexture != nullptr) {
++            setSamplePositions(positionsTexture);
++        }
+         d3d->CopyTextureRegion(&copyDstLocation, dstX, dstY, dstZ, &copySrcLocation, (srcBox != nullptr) ? &copyBox : nullptr);
+         resetSamplePositions();
+     }
+@@ -2945,6 +2956,8 @@ namespace plume {
+         }
+ 
+         poolDesc.MinBlockCount = desc.minBlockCount;
++        poolDesc.BlockSize = desc.blockSize;
++        poolDesc.HeapFlags |= desc.onlyRenderTargets ? (D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED) : D3D12_HEAP_FLAG_NONE;
+         poolDesc.MaxBlockCount = desc.maxBlockCount;
+         poolDesc.Flags |= desc.useLinearAlgorithm ? D3D12MA::POOL_FLAG_ALGORITHM_LINEAR : D3D12MA::POOL_FLAG_NONE;
+         poolDesc.HeapFlags |= desc.allowOnlyBuffers ? D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS : D3D12_HEAP_FLAG_NONE;
+@@ -3153,6 +3166,7 @@ namespace plume {
+         psoDesc.DepthStencilState.DepthWriteMask = desc.depthWriteEnabled ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
+         psoDesc.DepthStencilState.DepthFunc = toD3D12(desc.depthFunction);
+         psoDesc.DepthStencilState.StencilEnable = desc.stencilEnabled;
++        stencilRef = desc.stencilEnabled ? desc.stencilReference : 0;
+         psoDesc.DepthStencilState.StencilReadMask = desc.stencilReadMask;
+         psoDesc.DepthStencilState.StencilWriteMask = desc.stencilWriteMask;
+         psoDesc.DepthStencilState.FrontFace.StencilFailOp = toD3D12(desc.stencilFrontFace.failOp);
+diff --git a/plume_render_interface_types.h b/plume_render_interface_types.h
+index be1c5c3..fc521eb 100644
+--- a/plume_render_interface_types.h
++++ b/plume_render_interface_types.h
+@@ -1152,6 +1152,10 @@ namespace plume {
+         uint32_t maxBlockCount = 0;
+         bool useLinearAlgorithm = false;
+         bool allowOnlyBuffers = false;
++        // D3D12 only (UFC NR-12d): fixed block size in bytes (0 = the allocator's default), and a
++        // pool for non-MSAA render and depth target textures whose heaps are not zeroed.
++        uint64_t blockSize = 0;
++        bool onlyRenderTargets = false;
+     };
+ 
+     struct RenderSwapChainDesc {

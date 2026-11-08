@@ -5,17 +5,30 @@ public class SettingsTab : ILauncherTab
 {
     readonly FlowLayoutPanel col = Ui.Column();
     readonly Label status = Ui.Text("");
-    bool loading;
+    bool loading, buildingCache;
 
     readonly ComboBox scale = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
     readonly ComboBox backend = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
+    readonly ComboBox renderer = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
+    readonly Label rendererHint = Ui.Text("");
+    // NR-12c: graphics card. gpuValues[i] is what item i writes ("" = Automatic).
+    readonly ComboBox gpu = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
+    readonly List<string> gpuValues = new();
     readonly NumericUpDown cap = new() { Minimum = 0, Maximum = 4096, Width = 80 };
     readonly Dictionary<string, CheckBox> checks = new();
+    // merge7: the Gameplay rows only work with the mod pack (its marker file in the mods folder).
+    readonly List<Control> packOnly = new();
+    readonly Label packHint = Ui.Text("");
 
     public string Title => "Settings";
     public Control View => col;
 
     static readonly string[] ScaleNames = { "1x (native 720p)", "2x (1440p)", "3x (4K)", "4x (5K+)" };
+    static readonly string[] GlovedNames = { "Stock", "Slightly more", "More", "Lots" };
+    static readonly string[] GlovedValues = { "1.0", "1.5", "2.0", "4.0" };
+    static readonly string[] BkNames = { "Stock", "Some", "More", "Lots", "Most" };
+    static readonly string[] BkValues = { "1.0", "1.5", "2.0", "3.0", "5.0" };
+    readonly Dictionary<string, (ComboBox box, string[] values, string def)> choices = new();
 
     public SettingsTab()
     {
@@ -32,12 +45,48 @@ public class SettingsTab : ILauncherTab
             if (!loading) Write(t => t.SetStr("gpu_backend", backend.SelectedIndex == 1 ? "vulkan" : "d3d12"));
         };
         col.Controls.Add(Row("Graphics backend", backend));
+        renderer.Items.AddRange(new object[] { "Emulated (fallback)", "Native (default)" });
+        renderer.SelectedIndexChanged += (_, _) =>
+        {
+            if (loading) return;
+            Write(t => t.SetStr("ufc3_renderer", renderer.SelectedIndex == 1 ? "native" : "emulated"));
+            if (renderer.SelectedIndex == 1) _ = BuildCacheIfNeeded();
+        };
+        col.Controls.Add(Row("Renderer", renderer));
+        rendererHint.ForeColor = SystemColors.GrayText;
+        col.Controls.Add(rendererHint);
+        gpu.SelectedIndexChanged += (_, _) =>
+        {
+            if (loading || gpu.SelectedIndex < 0) return;
+            var v = gpuValues[gpu.SelectedIndex];
+            Write(t => t.SetStr(Gpu.TomlKey, v));
+        };
+        col.Controls.Add(Row("Graphics card", gpu));
+        var gpuHint = Ui.Text("Native renderer only. Automatic picks the dedicated (high-performance) graphics card on laptops that also have built-in graphics. Pick a card by name to override it; Windows' own per-app graphics setting can override Automatic too.");
+        gpuHint.ForeColor = SystemColors.GrayText;
+        col.Controls.Add(gpuHint);
+        // NR-13: present pass (ufc3_native_upscale); a picture as big as the window is never changed.
+        col.Controls.Add(Choice("ufc3_native_upscale", "Upscaling", new[] { "Bilinear (default)", "AMD FSR 1" },
+            new[] { "bilinear", "auto" }, "bilinear", raw: false));
+        var upscaleHint = Ui.Text("Native renderer only. Bilinear is the plain scaling. AMD FSR 1 is optional: when the render scale gives a picture smaller than the window (1x on a 1080p or bigger screen), it scales it up sharper than bilinear. A picture as big as the window or bigger looks the same either way.");
+        upscaleHint.ForeColor = SystemColors.GrayText;
+        col.Controls.Add(upscaleHint);
         col.Controls.Add(Check("fullscreen", "Fullscreen (borderless)", true, "Also F11 in game. Alt-tab is instant: the picture stays while another window has focus."));
         col.Controls.Add(Check("pause_on_focus_loss", "Mute while in the background", false, "Sound stops while another window has focus. The game keeps running either way; the controller is ignored until you come back."));
         col.Controls.Add(Check("ufc3_no_bloom", "Bloom off", false, "Has no visible effect: fights in this game don't use bloom."));
         col.Controls.Add(Check("ufc3_no_dof", "Depth of field off", false, "Removes the background blur."));
         col.Controls.Add(Check("ufc3_cutscene_60", "60 fps walkouts, intros and replays", false, "The game runs these at 30 fps. Experimental."));
         col.Controls.Add(Check("ufc3_steady_skin_light", "Steady skin lighting", true, "Skin keeps its stand-up tone on clinch and ground cameras. Off = the original game's darker top-down look."));
+
+        col.Controls.Add(Ui.Text("Gameplay", true));
+        col.Controls.Add(Ui.Text("These change how fights play out, not only how they look. Stock = the original game."));
+        packHint.ForeColor = SystemColors.GrayText;
+        col.Controls.Add(packHint);
+        packOnly.Add(Choice("ufc3_cut_rate", "Gloved cuts", GlovedNames, GlovedValues, "1.5", raw: true));
+        packOnly.Add(Choice("ufc3_bleed_rate", "Gloved bleeding", GlovedNames, GlovedValues, "1.5", raw: true));
+        packOnly.Add(Choice("ufc3_bk_cut_rate", "Bare knuckle cuts", BkNames, BkValues, "3.0", raw: true));
+        packOnly.Add(Choice("ufc3_bk_bleed_rate", "Bare knuckle bleeding", BkNames, BkValues, "1.5", raw: true));
+        foreach (var c in packOnly) col.Controls.Add(c);
 
         col.Controls.Add(Ui.Text("Unlocks", true));
         col.Controls.Add(Check("ufc3_unlock_all", "Unlock everything", false, "Every fighter and unlock-shop item counts as unlocked. Your save is not changed."));
@@ -53,6 +102,45 @@ public class SettingsTab : ILauncherTab
         col.Controls.Add(music);
 
         col.Controls.Add(status);
+    }
+
+    /// <summary>Native was just picked. Without game files there's nothing to build from yet: Setup builds the cache
+    /// after extracting them. A failed build puts the dropdown back on Emulated.</summary>
+    async Task BuildCacheIfNeeded()
+    {
+        if (ShaderCache.Current) return;
+        if (!Paths.AssetsReady) { status.Text = "Saved. The native renderer's shader cache gets built when you set up the game files (Setup tab)."; return; }
+        buildingCache = true;
+        renderer.Enabled = false;
+        rendererHint.Text = "Building the native renderer's shader cache from your game files. This only happens once...";
+        ShaderCache.Result r;
+        try { r = await Task.Run(() => ShaderCache.EnsurePresent(Paths.Assets)); }
+        catch (Exception ex) { r = new ShaderCache.Result(false, ex.Message); }
+        buildingCache = false;
+        if (r.Ok) status.Text = "Saved. Shader cache built.";
+        else
+        {
+            NativeRenderer.UseEmulated();
+            MessageBox.Show(NativeRenderer.FallbackText(r.Message), "UFC3 Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            status.Text = "Renderer set back to Emulated: the shader cache could not be built.";
+        }
+        var keep = status.Text;
+        OnShown();
+        status.Text = keep;
+    }
+
+    /// <summary>Automatic, then every card Windows lists. A saved name that isn't listed (another PC, a
+    /// removed card) is kept as its own item, so opening Settings never changes it.</summary>
+    void LoadGpus(Toml t)
+    {
+        var saved = t.GetStr(Gpu.TomlKey, "");
+        gpu.Items.Clear();
+        gpuValues.Clear();
+        gpu.Items.Add("Automatic (default)");
+        gpuValues.Add("");
+        foreach (var n in Gpu.AdapterNames()) { gpu.Items.Add(n); gpuValues.Add(n); }
+        if (saved.Length > 0 && !gpuValues.Contains(saved)) { gpu.Items.Add(saved + " (not found)"); gpuValues.Add(saved); }
+        gpu.SelectedIndex = Math.Max(0, gpuValues.IndexOf(saved));
     }
 
     static string MusicDir()
@@ -81,6 +169,20 @@ public class SettingsTab : ILauncherTab
         return p;
     }
 
+    Control Choice(string key, string label, string[] names, string[] values, string def, bool raw)
+    {
+        var box = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
+        box.Items.AddRange(names);
+        box.SelectedIndexChanged += (_, _) =>
+        {
+            if (loading) return;
+            var v = values[box.SelectedIndex];
+            Write(t => { if (raw) t.Set(key, v); else t.SetStr(key, v); });
+        };
+        choices[key] = (box, values, def);
+        return Row(label, box);
+    }
+
     void Write(Action<Toml> edit)
     {
         try
@@ -99,6 +201,24 @@ public class SettingsTab : ILauncherTab
         foreach (var (k, cb) in checks) cb.Checked = t.GetBool(k, (bool)cb.Tag!);
         scale.SelectedIndex = Math.Clamp(t.GetInt("resolution_scale", 1), 1, 4) - 1;
         backend.SelectedIndex = t.GetStr("gpu_backend", "vulkan").Equals("vulkan", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        bool native = NativeRenderer.Available;
+        renderer.Enabled = native && !buildingCache;
+        renderer.SelectedIndex = native && t.GetStr("ufc3_renderer", "native").Equals("native", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        if (!buildingCache)
+            rendererHint.Text = native
+                ? "Native draws the game directly with Direct3D 12 (ignores Graphics backend). Picking it builds a shader cache from your game files once. If it can't start, the game restarts on Emulated. Not used in DLSS 5 runs."
+                : "This build has no native renderer.";
+        LoadGpus(t);
+        foreach (var (k, c) in choices)
+        {
+            int i = Array.IndexOf(c.values, t.GetStr(k, c.def));
+            c.box.SelectedIndex = i >= 0 ? i : Array.IndexOf(c.values, c.def);
+        }
+        bool pack = ModPack.MarkerPresent;
+        foreach (var c in packOnly) c.Enabled = pack;
+        packHint.Text = pack
+            ? "Mod pack installed: bare knuckle (R3 on Select Fighter), the attire picker (L3) and Blood and Guts are on."
+            : "Needs the mod pack (Mod Pack tab): without it the game plays stock, with stock cuts and blood, and no bare knuckle or attire picker.";
         cap.Value = Math.Clamp(t.GetInt("ufc3_roster_cap", 1024), 0, 4096);
         status.Text = File.Exists(Paths.Toml) ? "" : "ufc3.toml does not exist yet: it is created when you change something here.";
         loading = false;

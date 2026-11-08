@@ -1,0 +1,350 @@
+diff --git a/XenosRecomp/main.cpp b/XenosRecomp/main.cpp
+index 88f15e7..8c51476 100644
+--- a/XenosRecomp/main.cpp
++++ b/XenosRecomp/main.cpp
+@@ -30,6 +30,7 @@ struct RecompiledShader
+     IDxcBlob* dxil = nullptr;
+     std::vector<uint8_t> spirv;
+     uint32_t specConstantsMask = 0;
++    uint32_t flags = 0;
+     std::string sourceName;
+ };
+ 
+@@ -47,7 +48,8 @@ static std::vector<ShaderFailure> g_failures;
+ // can't ship, so it's built on the player's machine from their own disc files. Little-endian:
+ //   header   { char magic[8] = "UFCSHC01"; u32 version = 1; u32 entryCount;
+ //              u64 dxilCompressedSize; u64 dxilSize; }
+-//   entries  { u64 hash; u32 dxilOffset; u32 dxilSize; u32 specConstantsMask; u32 reserved; }
++//   entries  { u64 hash; u32 dxilOffset; u32 dxilSize; u32 specConstantsMask; u32 flags; }
++//            flags bit 0: the vertex shader reads its streams itself (computed vfetch)
+ //            x entryCount, sorted by hash (XXH3 of the whole container, as the cpp cache)
+ //   zstd(all DXIL blobs)
+ // Shaders that failed are left out (listed on stderr); the runtime logs them as misses.
+@@ -66,7 +68,7 @@ struct BinaryCacheEntry
+     uint32_t dxilOffset;
+     uint32_t dxilSize;
+     uint32_t specConstantsMask;
+-    uint32_t reserved;
++    uint32_t flags;
+ };
+ 
+ static int writeBinaryCache(const char* output, const std::map<XXH64_hash_t, RecompiledShader>& shaders)
+@@ -78,7 +80,7 @@ static int writeBinaryCache(const char* output, const std::map<XXH64_hash_t, Rec
+         if (shader.dxil == nullptr)
+             continue;
+         const auto* data = reinterpret_cast<const uint8_t*>(shader.dxil->GetBufferPointer());
+-        entries.push_back({ hash, uint32_t(dxil.size()), uint32_t(shader.dxil->GetBufferSize()), shader.specConstantsMask, 0 });
++        entries.push_back({ hash, uint32_t(dxil.size()), uint32_t(shader.dxil->GetBufferSize()), shader.specConstantsMask, shader.flags });
+         dxil.insert(dxil.end(), data, data + shader.dxil->GetBufferSize());
+     }
+ 
+@@ -229,6 +231,7 @@ int main(int argc, char** argv)
+                 }
+ 
+                 shader.specConstantsMask = recompiler.specConstantsMask;
++                shader.flags = recompiler.computedFetch ? 1u : 0u;
+ 
+                 if (!hlslDumpDir.empty())
+                 {
+diff --git a/XenosRecomp/shader_common.h b/XenosRecomp/shader_common.h
+index ad9337d..1fcaf77 100644
+--- a/XenosRecomp/shader_common.h
++++ b/XenosRecomp/shader_common.h
+@@ -99,7 +99,10 @@ struct PushConstants
+     uint g_SwappedPositions : packoffset(c20.x); \
+     uint g_SintTexcoords : packoffset(c20.y); \
+     float g_ShadowPcfScale : packoffset(c20.z); \
+-    float4 g_ScreenSpace : packoffset(c22);
++    float4 g_ScreenSpace : packoffset(c22); \
++    int g_VertexIdBase : packoffset(c23.x); \
++    uint2 g_VfetchStreamBytes : packoffset(c23.y); \
++    uint4 g_VfetchElements[24] : packoffset(c40);
+ 
+ #define g_Booleans(i) (g_BooleansArr[(i) / 4][(i) % 4])
+ #else
+diff --git a/XenosRecomp/shader_recompiler.cpp b/XenosRecomp/shader_recompiler.cpp
+index 6566492..aed4633 100644
+--- a/XenosRecomp/shader_recompiler.cpp
++++ b/XenosRecomp/shader_recompiler.cpp
+@@ -208,6 +208,180 @@ void ShaderRecompiler::printDstSwizzle01(uint32_t dstRegister, uint32_t dstSwizz
+     }
+ }
+ 
++#ifdef REBLUE_RECOMP
++// UFC 3: on the Xenos a vertex shader starts with the vertex index in r0.x, and a vfetch reads at
++// any index a register holds. The crowd's shaders split r0.x into instance + local index and read
++// each vertex's bones at instance * bones + bone. The vfetch's format, stride and offset fields are
++// blank in the container (D3D fills them in from the vertex declaration at run time), so the draw
++// passes them in a table indexed by input location: byte offset, stride, format, stream.
++static constexpr const char* VFETCH_HELPER = R"(
++ByteAddressBuffer g_VfetchStream0 : register(t0, space6);
++ByteAddressBuffer g_VfetchStream1 : register(t1, space6);
++
++uint svrVfetchWord(uint stream, uint address)
++{
++    [branch] if (stream == 0)
++        return g_VfetchStream0.Load(address);
++    return g_VfetchStream1.Load(address);
++}
++
++// Returns what the input assembler returns for the format the declaration maps to, so the semantic
++// wrappers (swapFloats, tfetchR11G11B10, sintTexcoord) apply unchanged. The exceptions are integer
++// formats a float4 input can't take on the input assembler: those return their real values.
++float4 svrVfetch(uint slot, float index, bool rounded)
++{
++    uint4 e = g_VfetchElements[slot];
++    uint format = e.z;
++    [branch] if (format == 0)
++        return 0.0;
++    uint words = format <= 4 ? format : (format >= 13 ? 2 : 1);
++    uint i = min(uint(max(rounded ? floor(index + 0.5) : floor(index), 0.0)), 0xFFFFFFu);
++    uint a = e.x + i * e.y;
++    // Root descriptors have no bounds check.
++    [branch] if (a + words * 4 > g_VfetchStreamBytes[e.w])
++        return 0.0;
++    uint w[4] = { svrVfetchWord(e.w, a), 0, 0, 0 };
++    for (uint k = 1; k < words; ++k)
++        w[k] = svrVfetchWord(e.w, a + k * 4);
++    if (format <= 4)
++        return float4(asfloat(w[0]), asfloat(w[1]), asfloat(w[2]), format == 4 ? asfloat(w[3]) : 1.0);
++    if (format <= 7)
++    {
++        float4 b = float4(w[0] & 255, (w[0] >> 8) & 255, (w[0] >> 16) & 255, w[0] >> 24);
++        return format == 5 ? b / 255.0 : (format == 6 ? b.zyxw / 255.0 : b);
++    }
++    uint4 h = uint4(w[0] & 0xFFFF, w[0] >> 16, w[1] & 0xFFFF, w[1] >> 16);
++    float4 s = float4((int4(h) << 16) >> 16);
++    float4 v = 0.0;
++    switch (format >= 13 ? format - 5 : format)
++    {
++    case 8: v = max(s / 32767.0, -1.0); break;
++    case 9: v = float4(h) / 65535.0; break;
++    case 10: v = f16tof32(h); break;
++    case 11: v = asfloat(h); break;
++    default: v = s; break;
++    }
++    return format >= 13 ? v : float4(v.xy, 0.0, 1.0);
++}
++
++)";
++
++void ShaderRecompiler::analyzeVertexIndexUse(const be<uint32_t>* code, uint32_t size)
++{
++    union
++    {
++        ControlFlowInstruction controlFlow[2];
++        struct
++        {
++            uint32_t code0;
++            uint32_t code1;
++            uint32_t code2;
++            uint32_t code3;
++        };
++    };
++
++    bool indexWritten = false; // r0.x no longer holds the vertex index
++    auto controlFlowCode = code;
++    for (uint32_t instrAddress = 0; instrAddress < size; instrAddress += 12, controlFlowCode += 3)
++    {
++        code0 = controlFlowCode[0];
++        code1 = controlFlowCode[1] & 0xFFFF;
++        code2 = (controlFlowCode[1] >> 16) | (controlFlowCode[2] << 16);
++        code3 = controlFlowCode[2] >> 16;
++
++        for (auto& cfInstr : controlFlow)
++        {
++            switch (cfInstr.opcode)
++            {
++            case ControlFlowOpcode::Exec:
++            case ControlFlowOpcode::ExecEnd:
++            case ControlFlowOpcode::CondExec:
++            case ControlFlowOpcode::CondExecEnd:
++            case ControlFlowOpcode::CondExecPred:
++            case ControlFlowOpcode::CondExecPredEnd:
++            case ControlFlowOpcode::CondExecPredClean:
++            case ControlFlowOpcode::CondExecPredCleanEnd:
++                break;
++            default:
++                continue;
++            }
++
++            const uint32_t address = cfInstr.exec.address;
++            if (address != 0)
++                size = std::min<uint32_t>(size, address * 12);
++
++            uint32_t sequence = cfInstr.exec.sequence;
++            auto instructionCode = code + address * 3;
++            for (uint32_t i = 0; i < cfInstr.exec.count; i++, sequence >>= 2, instructionCode += 3)
++            {
++                union
++                {
++                    VertexFetchInstruction vertexFetch;
++                    TextureFetchInstruction textureFetch;
++                    AluInstruction alu;
++                    struct
++                    {
++                        uint32_t fetch0;
++                        uint32_t fetch1;
++                        uint32_t fetch2;
++                    };
++                };
++                fetch0 = instructionCode[0];
++                fetch1 = instructionCode[1];
++                fetch2 = instructionCode[2];
++
++                if ((sequence & 0x1) != 0)
++                {
++                    uint32_t dstRegister, dstSwizzle;
++                    if (vertexFetch.opcode == FetchOpcode::VertexFetch)
++                    {
++                        if (vertexFetch.srcRegister != 0 || vertexFetch.srcSwizzle != 0 || indexWritten)
++                            computedFetch = true;
++                        dstRegister = vertexFetch.dstRegister;
++                        dstSwizzle = vertexFetch.dstSwizzle;
++                    }
++                    else
++                    {
++                        dstRegister = textureFetch.dstRegister;
++                        dstSwizzle = textureFetch.dstSwizzle;
++                    }
++                    if (dstRegister == 0 && (dstSwizzle & 0x7) != 0x7)
++                        indexWritten = true;
++                }
++                else
++                {
++                    if (!indexWritten)
++                    {
++                        const auto reads = [](uint32_t reg, uint32_t select, uint32_t swizzle)
++                            {
++                                if (select == 0 || (reg & 0x3F) != 0)
++                                    return false;
++                                for (uint32_t k = 0; k < 4; k++)
++                                {
++                                    if ((((swizzle >> (k * 2)) + k) & 0x3) == 0)
++                                        return true;
++                                }
++                                return false;
++                            };
++                        if (reads(alu.src1Register, alu.src1Select, alu.src1Swizzle) ||
++                            reads(alu.src2Register, alu.src2Select, alu.src2Swizzle) ||
++                            reads(alu.src3Register, alu.src3Select, alu.src3Swizzle))
++                            usesVertexId = true;
++                    }
++                    if (!alu.exportData &&
++                        ((alu.vectorDest == 0 && (alu.vectorWriteMask & 1) != 0) ||
++                         (alu.scalarDest == 0 && (alu.scalarWriteMask & 1) != 0)))
++                        indexWritten = true;
++                }
++            }
++        }
++    }
++
++    if (computedFetch)
++        usesVertexId = true;
++}
++#endif
++
+ void ShaderRecompiler::recompile(const VertexFetchInstruction& instr, uint32_t address)
+ {
+     if (instr.isPredicated)
+@@ -271,6 +445,22 @@ void ShaderRecompiler::recompile(const VertexFetchInstruction& instr, uint32_t a
+     }
+ #endif
+ 
++#ifdef REBLUE_RECOMP
++    if (computedFetch)
++    {
++        // UFC 3: the index isn't the vertex's own, so the input assembler can't serve this fetch.
++        XR_CHECK(!instr.srcRegisterAm);
++        int location = -1;
++        for (auto& usageLocation : USAGE_LOCATIONS)
++        {
++            if (usageLocation.usage == findResult->second.usage && usageLocation.usageIndex == findResult->second.usageIndex)
++                location = int(usageLocation.location);
++        }
++        XR_CHECK(location >= 0);
++        print("svrVfetch({}, r{}.{}, {})", location, uint32_t(instr.srcRegister), SWIZZLES[instr.srcSwizzle], instr.isIndexRounded ? "true" : "false");
++    }
++    else
++#endif
+     print("i{}{}", USAGE_VARIABLES[uint32_t(findResult->second.usage)], uint32_t(findResult->second.usageIndex));
+ 
+ #ifdef REBLUE_RECOMP
+@@ -1558,6 +1748,15 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
+ 
+     const auto shader = reinterpret_cast<const Shader*>(shaderData + shaderContainer->shaderOffset);
+ 
++#ifdef REBLUE_RECOMP
++    if (!isPixelShader)
++    {
++        analyzeVertexIndexUse(reinterpret_cast<const be<uint32_t>*>(shaderData + shaderContainer->virtualSize + shader->physicalOffset), shader->size);
++        if (computedFetch)
++            out += VFETCH_HELPER;
++    }
++#endif
++
+     out += "#ifndef __spirv__\n";
+ 
+     if (isPixelShader)
+@@ -1621,6 +1820,11 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
+             if (!declaredInputs.insert((uint32_t(vertexElement.usage) << 8) | uint32_t(vertexElement.usageIndex)).second)
+                 continue;
+ 
++        #ifdef REBLUE_RECOMP
++            if (computedFetch)
++                continue;
++        #endif
++
+             const char* usageType = USAGE_TYPES[uint32_t(vertexElement.usage)];
+ 
+         #ifdef UNLEASHED_RECOMP
+@@ -1657,6 +1861,11 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
+         }
+     #endif
+ 
++    #ifdef REBLUE_RECOMP
++        if (usesVertexId)
++            out += "\tin uint iVertexId : SV_VertexID,\n";
++    #endif
++
+         out += "\tout float4 oPos : SV_Position";
+ 
+         for (auto& [usage, usageIndex] : INTERPOLATORS)
+@@ -1818,6 +2027,13 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
+             {
+                 out += "float4(iVertexId + g_IndexCount.x * iInstanceId, 0.0, 0.0, 0.0);\n";
+             }
++        #endif
++        #ifdef REBLUE_RECOMP
++            else if (!isPixelShader && usesVertexId && i == 0)
++            {
++                // SV_VertexID leaves out the draw's base vertex, r0.x on the Xenos has it.
++                out += "float4(float(int(iVertexId) + g_VertexIdBase), 0.0, 0.0, 0.0);\n";
++            }
+         #endif
+             else
+             {
+diff --git a/XenosRecomp/shader_recompiler.h b/XenosRecomp/shader_recompiler.h
+index 791def7..b332132 100644
+--- a/XenosRecomp/shader_recompiler.h
++++ b/XenosRecomp/shader_recompiler.h
+@@ -44,6 +44,9 @@ struct ShaderRecompiler : StringBuffer
+ 
+ #ifdef REBLUE_RECOMP
+     bool hasShadowTexture = false;
++    // UFC 3: reads the vertex index in r0.x / fetches at an index of its own (flag in the cache).
++    bool usesVertexId = false;
++    bool computedFetch = false;
+     uint32_t shadowTapUVCount = 0;
+     std::unordered_map<uint32_t, uint32_t> shadowTapSlots;
+ #endif
+@@ -57,6 +60,9 @@ struct ShaderRecompiler : StringBuffer
+     void printDstSwizzle(uint32_t dstSwizzle, bool operand);
+     void printDstSwizzle01(uint32_t dstRegister, uint32_t dstSwizzle);
+ 
++#ifdef REBLUE_RECOMP
++    void analyzeVertexIndexUse(const be<uint32_t>* code, uint32_t size);
++#endif
+     void recompile(const VertexFetchInstruction& instr, uint32_t address);
+     void recompile(const TextureFetchInstruction& instr, bool bicubic);
+     void recompile(const AluInstruction& instr);

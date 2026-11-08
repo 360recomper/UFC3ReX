@@ -12,13 +12,16 @@ static class Program
     ///   --setup-dlc &lt;zip|pkg|folder&gt; [--userdata dir]   headless DLC install
     ///   --updated              (internal) started by the launcher after it replaced itself
     ///   --dlss5                start the game with DLSS 5 right away (tests)
+    ///   --shader-cache [--dest dir]   headless shader cache build, the step after --setup-iso (tests); log in setup-cli-log.txt
+    ///   --native               start the game as Play does with Renderer = Native: builds a missing shader cache, starts on
+    ///                          emulated if that fails or after exit code 3 (tests)
     ///   --dlss5-setup &lt;dir&gt;  fill dlss5\ from a folder holding the DLSS 5 stack; log in dlss5-cli-log.txt
     /// </summary>
     [STAThread]
     static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
-        if (args.Contains("--setup-iso") || args.Contains("--setup-dlc")) { Environment.Exit(SetupCli(args)); return; }
+        if (args.Contains("--setup-iso") || args.Contains("--setup-dlc") || args.Contains("--shader-cache")) { Environment.Exit(SetupCli(args)); return; }
         if (args.Length == 2 && args[0] == "--dlss5-setup") { Environment.Exit(Dlss5.SetupCli(args[1])); return; }
         if (args.Length == 2 && (args[0] == "--modpack-install" || args[0] == "--modpack-uninstall"))
         { Environment.Exit(ModPackCli(args[0], args[1])); return; }
@@ -27,6 +30,16 @@ static class Program
         {
             try { var start = DateTime.Now.AddSeconds(-2); Dlss5.WaitAndKeepSettings(Dlss5.Launch(Config.Load()), start); }
             catch (Exception ex) { MessageBox.Show("Could not start with DLSS 5: " + ex.Message, "UFC3 Launcher"); }
+            return;
+        }
+        if (args.Contains("--native"))
+        {
+            try
+            {
+                if (NativeRenderer.PrepareCache() != null) NativeRenderer.LaunchEmulated(); // reason is in launcher-native.log
+                else NativeRenderer.WaitAndFallBack(NativeRenderer.Launch());
+            }
+            catch (Exception ex) { MessageBox.Show("Could not start the game: " + ex.Message, "UFC3 Launcher"); }
             return;
         }
         Application.Run(new MainForm(args.Contains("--updated")));
@@ -47,7 +60,10 @@ static class Program
                 var dest = Arg(args, "--dest") ?? Paths.Assets;
                 Setup.ImportIso(iso, dest, none, CancellationToken.None);
                 log.Add($"iso extracted to {dest} in {sw.Elapsed.TotalSeconds:0}s");
+                log.Add(Setup.FinishImport(dest, none, CancellationToken.None));
             }
+            else if (args.Contains("--shader-cache"))
+                log.Add(Setup.FinishImport(Arg(args, "--dest") ?? Paths.Assets, none, CancellationToken.None));
             if (Arg(args, "--setup-dlc") is { } dlc)
             {
                 var ud = Arg(args, "--userdata") ?? Paths.UserData;

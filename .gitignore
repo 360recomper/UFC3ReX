@@ -29,3 +29,9 @@
 ufc3.toml
 *.log
 *.tmp
+
+# Native renderer: fetched and patched by tools/nr_fetch_third_party.py (pins in CREDITS.md)
+/third_party/plume/
+/third_party/XenosRecomp/
+# Pipeline seed (shader content hashes only, no game data) ships with the native build
+!/config/native/pipelines_seed.bin

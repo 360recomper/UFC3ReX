@@ -1,0 +1,114 @@
+diff --git a/plume_d3d12.cpp b/plume_d3d12.cpp
+--- a/plume_d3d12.cpp
++++ b/plume_d3d12.cpp
+@@ -10,6 +10,7 @@
+ #include <unordered_set>
+ 
+ #include <dxgi1_5.h>
++#include <dxgi1_6.h>
+ 
+ #ifdef __clang__
+ #pragma clang diagnostic push
+@@ -3681,10 +3682,30 @@ namespace plume {
+         this->renderInterface = renderInterface;
+         
+         // Detect adapter to use that will offer the best performance and features.
++        // UFC NR-12c: adapters are walked in the order Windows ranks them for high performance
++        // (the dedicated GPU first on a hybrid laptop; a per-app choice in Windows' graphics
++        // settings is honoured), and the first one that works is the pick. Without IDXGIFactory6
++        // (Windows 10 before 1803) the old rule stays: the most dedicated video memory. A named
++        // device that is found always wins, and nothing after it can replace it.
+         HRESULT res;
+         UINT adapterIndex = 0;
+         IDXGIAdapter1 *adapterOption = nullptr;
+-        while (renderInterface->dxgiFactory->EnumAdapters1(adapterIndex++, &adapterOption) != DXGI_ERROR_NOT_FOUND) {
++        IDXGIFactory6 *dxgiFactory6 = nullptr;
++        if (FAILED(renderInterface->dxgiFactory->QueryInterface(IID_PPV_ARGS(&dxgiFactory6)))) {
++            dxgiFactory6 = nullptr;
++        }
++
++        const bool gpuPreferenceOrder = (dxgiFactory6 != nullptr);
++        bool userChoicePicked = false;
++        auto enumAdapter = [&](UINT index, IDXGIAdapter1 **adapterOut) -> HRESULT {
++            if (gpuPreferenceOrder) {
++                return dxgiFactory6->EnumAdapterByGpuPreference(index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(adapterOut));
++            }
++
++            return renderInterface->dxgiFactory->EnumAdapters1(index, adapterOut);
++        };
++
++        while (!userChoicePicked && SUCCEEDED(enumAdapter(adapterIndex++, &adapterOption))) {
+             DXGI_ADAPTER_DESC1 adapterDesc;
+             adapterOption->GetDesc1(&adapterDesc);
+ 
+@@ -3708,20 +3729,24 @@ namespace plume {
+             const D3D_SHADER_MODEL supportedShaderModels[] = { D3D_SHADER_MODEL_6_0 };
+ #       endif
+             D3D12_FEATURE_DATA_SHADER_MODEL dataShaderModel = {};
++            bool shaderModelFailed = false;
+             for (uint32_t i = 0; i < _countof(supportedShaderModels); i++) {
+                 dataShaderModel.HighestShaderModel = supportedShaderModels[i];
+                 res = deviceOption->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &dataShaderModel, sizeof(dataShaderModel));
+                 if (res != E_INVALIDARG) {
+-                    if (FAILED(res)) {
+-                        deviceOption->Release();
+-                        adapterOption->Release();
+-                        continue;
+-                    }
+-
++                    // UFC NR-12c: this used to release both objects and `continue` the inner loop,
++                    // then carry on with the released device. Skip the adapter instead.
++                    shaderModelFailed = FAILED(res);
+                     break;
+                 }
+             }
+ 
++            if (shaderModelFailed) {
++                deviceOption->Release();
++                adapterOption->Release();
++                continue;
++            }
++
+             // Determine if the device supports sample locations.
+             bool resolveRegionOption = false;
+             bool samplePositionsOption = false;
+@@ -3774,9 +3799,9 @@ namespace plume {
+             // Pick this adapter and device if it has better feature support than the current one.
+             std::string deviceName = Utf16ToUtf8(adapterDesc.Description);
+             bool preferOverNothing = (adapter == nullptr) || (d3d == nullptr);
+-            bool preferVideoMemory = adapterDesc.DedicatedVideoMemory > description.dedicatedVideoMemory;
+-            bool preferUserChoice = preferredDeviceName == deviceName;
+-            bool preferOption = preferOverNothing || preferVideoMemory || preferUserChoice;
++            bool preferVideoMemory = !gpuPreferenceOrder && (adapterDesc.DedicatedVideoMemory > description.dedicatedVideoMemory);
++            bool preferUserChoice = !preferredDeviceName.empty() && (preferredDeviceName == deviceName);
++            bool preferOption = !userChoicePicked && (preferOverNothing || preferVideoMemory || preferUserChoice);
+             if (preferOption) {
+                 if (d3d != nullptr) {
+                     d3d->Release();
+@@ -3814,7 +3839,15 @@ namespace plume {
+                     description.driverVersion = adapterVersion.QuadPart;
+                 }
+ 
++                // The named device ends the search. In high-performance order with no name, the
++                // first working adapter is the answer, so the rest are not opened at all (opening
++                // a D3D12 device on the integrated GPU would wake it for nothing).
+                 if (preferUserChoice) {
++                    userChoicePicked = true;
++                    break;
++                }
++
++                if (gpuPreferenceOrder && preferredDeviceName.empty()) {
+                     break;
+                 }
+             }
+@@ -3824,6 +3857,10 @@ namespace plume {
+             }
+         }
+ 
++        if (dxgiFactory6 != nullptr) {
++            dxgiFactory6->Release();
++        }
++
+         if (d3d == nullptr) {
+             fprintf(stderr, "Unable to create a D3D12 device with the required features.\n");
+             return;

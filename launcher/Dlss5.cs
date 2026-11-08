@@ -121,6 +121,8 @@ public static class Dlss5
         var psi = new ProcessStartInfo(Paths.GameExe) { WorkingDirectory = Paths.Root, UseShellExecute = false };
         foreach (var a in new[] { "--gpu_backend=vulkan", $"--resolution_scale={Math.Clamp(c.Dlss5Scale, 1, 4)}", "--vulkan_shared_memory_hoist_uploads=true" })
             psi.ArgumentList.Add(a);
+        // DLSS 5 hooks the emulator's Vulkan output; the native renderer draws through D3D12.
+        if (NativeRenderer.Available) psi.ArgumentList.Add("--ufc3_renderer=emulated");
         psi.Environment["VK_ADD_IMPLICIT_LAYER_PATH"] = Path.Combine(Dir, "ReShade64.json");
         return Process.Start(psi) ?? throw new InvalidOperationException("ufc3.exe did not start");
     }

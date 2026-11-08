@@ -1,0 +1,16 @@
+diff --git a/XenosRecomp/shader_recompiler.cpp b/XenosRecomp/shader_recompiler.cpp
+index b3d35bd..6566492 100644
+--- a/XenosRecomp/shader_recompiler.cpp
++++ b/XenosRecomp/shader_recompiler.cpp
+@@ -2354,7 +2354,10 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
+                     out += '{';
+ 
+                     indent();
+-                    out += "\tclip(oC0.w - g_AlphaThreshold);\n";
++                    // UFC: a threshold below zero carries the inverted test (pass when alpha <= R, the
++                    // Xbox 360's LESS / LESSEQUAL alpha functions) as -1 - R. UFC's menus cut their
++                    // stencil masks that way.
++                    out += "\tclip(g_AlphaThreshold >= 0.0 ? oC0.w - g_AlphaThreshold : (-1.0 - g_AlphaThreshold) - oC0.w);\n";
+ 
+                     indent();
+                     out += "}";

@@ -49,6 +49,25 @@ public static class ModPack
     public static string RecordPath => Path.Combine(Paths.Mods, RecordName);
     static string BackupDir => Path.Combine(Paths.Mods, BackupName);
 
+    /// <summary>merge7: the exe runs Blood and Guts, bare knuckle and the attire picker only with this file in the
+    /// mods folder (src/mod_pack.h; every pack build writes it). First line starts with <see cref="MarkerMagic"/>.</summary>
+    public const string MarkerName = "ufc3_modpack.marker";
+    public const string MarkerMagic = "UFC3-MODPACK-MARKER";
+    public static bool MarkerPresent
+    {
+        get
+        {
+            try
+            {
+                var p = Path.Combine(Paths.Mods, MarkerName);
+                if (!File.Exists(p)) return false;
+                using var r = new StreamReader(p);
+                return (r.ReadLine() ?? "").StartsWith(MarkerMagic, StringComparison.Ordinal);
+            }
+            catch { return false; }
+        }
+    }
+
     public static Record? Installed()
     {
         try { return JsonSerializer.Deserialize<Record>(File.ReadAllText(RecordPath), Json); }

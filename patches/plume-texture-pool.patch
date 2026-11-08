@@ -1,0 +1,21 @@
+--- a/plume_d3d12.cpp
++++ b/plume_d3d12.cpp
+@@ -2959,6 +2959,7 @@
+         poolDesc.MinBlockCount = desc.minBlockCount;
+         poolDesc.BlockSize = desc.blockSize;
+         poolDesc.HeapFlags |= desc.onlyRenderTargets ? (D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED) : D3D12_HEAP_FLAG_NONE;
++        poolDesc.HeapFlags |= desc.onlyTextures ? D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES : D3D12_HEAP_FLAG_NONE;
+         poolDesc.MaxBlockCount = desc.maxBlockCount;
+         poolDesc.Flags |= desc.useLinearAlgorithm ? D3D12MA::POOL_FLAG_ALGORITHM_LINEAR : D3D12MA::POOL_FLAG_NONE;
+         poolDesc.HeapFlags |= desc.allowOnlyBuffers ? D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS : D3D12_HEAP_FLAG_NONE;
+--- a/plume_render_interface_types.h
++++ b/plume_render_interface_types.h
+@@ -1156,6 +1156,8 @@
+         // pool for non-MSAA render and depth target textures whose heaps are not zeroed.
+         uint64_t blockSize = 0;
+         bool onlyRenderTargets = false;
++        // D3D12 only (UFC NR-14d): a pool for sampled-only textures (no render or depth target).
++        bool onlyTextures = false;
+     };
+ 
+     struct RenderSwapChainDesc {

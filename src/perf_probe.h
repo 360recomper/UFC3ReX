@@ -12,6 +12,8 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -103,7 +105,28 @@ inline void Report() {
 
 // Sampling profiler: every ~1 ms suspend the target thread (the VdSwap thread,
 // or --ufc3_sample_tid), record its stack, and every 5 s log the hottest
-// functions (leaf and inclusive), symbolized from ufc3.pdb.
+// functions (leaf and inclusive), symbolized from ufc3.pdb. Without the PDB beside the exe (a laptop
+// job copies only exe and dlls) a function prints as module+0xOFFSET, its start from .pdata, so
+// samples add up per function; tools/nr_symbolize.py --samples names them offline.
+inline std::string ModuleOffsetName(DWORD64 addr) {
+  DWORD64 start = addr;
+  DWORD64 image_base = 0;
+  if (auto* fe = RtlLookupFunctionEntry(addr, &image_base, nullptr)) {
+    start = image_base + fe->BeginAddress;
+  }
+  HMODULE module = nullptr;
+  if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                          reinterpret_cast<LPCSTR>(addr), &module)) {
+    return fmt::format("?{:X}", addr);
+  }
+  char path[MAX_PATH]{};
+  GetModuleFileNameA(module, path, MAX_PATH);
+  const char* file = std::strrchr(path, '\\');
+  return fmt::format("{}+0x{:X}", file ? file + 1 : path,
+                     start - reinterpret_cast<DWORD64>(module));
+}
+
 inline void SamplerMain(DWORD target_tid) {
   HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
                              FALSE, target_tid);
@@ -126,9 +149,11 @@ inline void SamplerMain(DWORD target_tid) {
     si->SizeOfStruct = sizeof(SYMBOL_INFO);
     si->MaxNameLen = 256;
     DWORD64 disp = 0;
-    std::string n = SymFromAddr(GetCurrentProcess(), addr, &disp, si)
+    // An export is only the nearest public name, often far from the address: not a real symbol.
+    std::string n = SymFromAddr(GetCurrentProcess(), addr, &disp, si) &&
+                            !(si->Flags & SYMFLAG_EXPORT)
                         ? std::string(si->Name)
-                        : fmt::format("?{:X}", addr);
+                        : ModuleOffsetName(addr);
     return names.emplace(addr, std::move(n)).first->second;
   };
   uint64_t window_start = NowNs();
@@ -174,7 +199,7 @@ inline void SamplerMain(DWORD target_tid) {
       std::vector<std::pair<int, std::string>> v;
       for (auto& [n, k] : m) v.emplace_back(k, n);
       std::sort(v.rbegin(), v.rend());
-      for (size_t i = 0; i < v.size() && i < 25; ++i) {
+      for (size_t i = 0; i < v.size() && i < 60; ++i) {
         REXLOG_INFO("[perf] {} {:5.1f}% {}", what, 100.0 * v[i].first / samples.size(),
                     v[i].second);
       }
@@ -226,10 +251,223 @@ inline void StartSampler() {
   std::thread(SamplerMain, tid).detach();
 }
 
+// Spike trace (--ufc3_spike_trace_ms=N): two samplers keep the last seconds of
+// stacks of the game's VdSwap thread and the GPU thread. When two VdSwap calls
+// are N ms or more apart, each logs what its thread did inside that gap.
+REXCVAR_DEFINE_INT32(ufc3_spike_trace_ms, 0, "ufc3",
+                     "Log thread stacks for gaps of this many ms between swaps (0: off)");
+
+inline std::atomic<uint64_t> g_spike_from{0}, g_spike_to{0};
+inline std::atomic<uint32_t> g_spike_seq{0};
+inline std::atomic<DWORD> g_spike_sampler_a{0}, g_spike_sampler_b{0};
+
+struct SpikeSample {
+  uint64_t t = 0;
+  DWORD64 st[16] = {};
+};
+
+// Raw addresses only: symbols are looked up afterwards (tools/spike_report.py).
+// Loading dbghelp symbols inside the game crashed it and made its own hitches.
+inline std::string SpikeAddr(DWORD64 addr) {
+  static std::unordered_map<DWORD64, std::string> cache;  // module base -> name; per process
+  static std::mutex mutex;
+  HMODULE mod = nullptr;
+  if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                          reinterpret_cast<LPCWSTR>(addr), &mod)) {
+    return fmt::format("?+{:X}", addr);
+  }
+  DWORD64 mod_base = reinterpret_cast<DWORD64>(mod);
+  std::lock_guard<std::mutex> lock(mutex);
+  auto it = cache.find(mod_base);
+  if (it == cache.end()) {
+    char path[MAX_PATH] = {};
+    GetModuleFileNameA(mod, path, MAX_PATH);
+    std::string name(path);
+    size_t slash = name.find_last_of("\/");
+    if (slash != std::string::npos) name = name.substr(slash + 1);
+    it = cache.emplace(mod_base, std::move(name)).first;
+  }
+  return fmt::format("{}+{:X}", it->second, addr - mod_base);
+}
+
+inline void SpikeDump(const char* label, const std::vector<SpikeSample>& ring, uint64_t from,
+                      uint64_t to) {
+  std::vector<const SpikeSample*> hits;
+  for (const SpikeSample& s : ring) {
+    if (s.t >= from && s.t <= to && s.st[0]) hits.push_back(&s);
+  }
+  REXLOG_INFO("[spike] {} gap {:.0f} ms, {} samples", label, (to - from) / 1e6, hits.size());
+  size_t step = std::max<size_t>(1, hits.size() / 24);
+  for (size_t i = 0; i < hits.size(); i += step) {
+    std::string line;
+    for (DWORD64 a : hits[i]->st) {
+      if (!a) break;
+      line += " " + SpikeAddr(a);
+    }
+    REXLOG_INFO("[spike] {} s{}", label, line);
+  }
+}
+
+// No C++ objects here, so __try is allowed: the walk can run off the end of the
+// stack of a suspended thread.
+inline void SpikeCapture(HANDLE thread, DWORD64* st) {
+  __try {
+    CONTEXT c{};
+    c.ContextFlags = CONTEXT_FULL;
+    if (!GetThreadContext(thread, &c)) return;
+    for (int d = 0; d < 16 && c.Rip; ++d) {
+      st[d] = c.Rip;
+      DWORD64 image_base = 0;
+      auto* fe = RtlLookupFunctionEntry(c.Rip, &image_base, nullptr);
+      if (!fe) {
+        c.Rip = *reinterpret_cast<DWORD64*>(c.Rsp);
+        c.Rsp += 8;
+        continue;
+      }
+      void* handler_data;
+      DWORD64 establisher;
+      RtlVirtualUnwind(UNW_FLAG_NHANDLER, image_base, c.Rip, fe, &c, &handler_data, &establisher,
+                       nullptr);
+    }
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+  }
+}
+
+inline void SpikeSampler(DWORD tid, const char* label) {
+  HANDLE thread =
+      OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, tid);
+  if (!thread) return;
+  REXLOG_INFO("[spike] sampling {} (host thread {})", label, tid);
+  (label[1] == 'a' ? g_spike_sampler_a : g_spike_sampler_b) = GetCurrentThreadId();
+  std::vector<SpikeSample> ring(8192);
+  size_t head = 0;
+  uint32_t seen = 0;
+  while (true) {
+    Sleep(1);
+    SpikeSample s;
+    if (SuspendThread(thread) == DWORD(-1)) break;
+    SpikeCapture(thread, s.st);
+    ResumeThread(thread);
+    s.t = NowNs();
+    ring[head++ % ring.size()] = s;
+    uint32_t seq = g_spike_seq.load();
+    if (seq != seen) {
+      seen = seq;
+      SpikeDump(label, ring, g_spike_from.load(), g_spike_to.load());
+    }
+  }
+}
+
+// Every other thread, a little less often: during a gap, log the ones that were not sleeping.
+inline void SpikeOthers(DWORD game_tid, DWORD gpu_tid) {
+  struct Sample {
+    uint64_t t = 0;
+    DWORD tid = 0;
+    DWORD64 st[16] = {};
+  };
+  const DWORD self = GetCurrentThreadId();
+  std::vector<Sample> ring(32768);
+  size_t head = 0;
+  uint32_t seen = 0;
+  std::vector<std::pair<DWORD, HANDLE>> threads;
+  uint64_t last_list = 0;
+  const auto* ntdll = reinterpret_cast<const uint8_t*>(GetModuleHandleW(L"ntdll.dll"));
+  while (true) {
+    Sleep(2);
+    uint64_t now = NowNs();
+    if (now - last_list > 1000000000ull) {
+      last_list = now;
+      HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+      THREADENTRY32 te{sizeof(te)};
+      for (BOOL ok = Thread32First(snap, &te); ok; ok = Thread32Next(snap, &te)) {
+        DWORD id = te.th32ThreadID;
+        if (te.th32OwnerProcessID != GetCurrentProcessId() || id == self || id == game_tid ||
+            id == gpu_tid || id == g_spike_sampler_a.load() || id == g_spike_sampler_b.load()) {
+          continue;
+        }
+        bool known = false;
+        for (auto& t : threads) known = known || t.first == id;
+        if (known) continue;
+        HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT |
+                                  THREAD_QUERY_INFORMATION, FALSE, id);
+        if (h) threads.emplace_back(id, h);
+      }
+      CloseHandle(snap);
+    }
+    for (auto& [id, h] : threads) {
+      Sample& s = ring[head++ % ring.size()];
+      s = Sample{};
+      if (SuspendThread(h) == DWORD(-1)) continue;
+      SpikeCapture(h, s.st);
+      ResumeThread(h);
+      s.t = NowNs();
+      s.tid = id;
+    }
+    uint32_t seq = g_spike_seq.load();
+    if (seq == seen) continue;
+    seen = seq;
+    uint64_t from = g_spike_from.load(), to = g_spike_to.load();
+    int logged = 0;
+    std::unordered_map<DWORD, int> per;
+    for (const Sample& s : ring) {
+      if (s.t < from || s.t > to || !s.st[0]) continue;
+      const auto* leaf = reinterpret_cast<const uint8_t*>(s.st[0]);
+      if (leaf >= ntdll && leaf < ntdll + 0x200000) continue;  // waiting or sleeping
+      per[s.tid]++;
+    }
+    std::string counts;
+    for (auto& [id, n] : per) counts += fmt::format(" {}:{}", id, n);
+    REXLOG_INFO("[spike] busy gap {:.0f} ms, {} threads busy:{}", (to - from) / 1e6, per.size(),
+                counts);
+    std::unordered_map<DWORD, int> shown;
+    for (const Sample& s : ring) {
+      if (s.t < from || s.t > to || !s.st[0] || logged >= 60) continue;
+      const auto* leaf = reinterpret_cast<const uint8_t*>(s.st[0]);
+      if (leaf >= ntdll && leaf < ntdll + 0x200000) continue;
+      if (++shown[s.tid] % std::max(1, per[s.tid] / 8) != 0) continue;
+      std::string line;
+      for (DWORD64 a : s.st) {
+        if (!a) break;
+        line += " " + SpikeAddr(a);
+      }
+      REXLOG_INFO("[spike] busy s{}", line);
+      ++logged;
+    }
+  }
+}
+
+inline void SpikeOnSwap() {
+  int32_t limit = REXCVAR_GET(ufc3_spike_trace_ms);
+  if (limit <= 0) return;
+  static std::atomic<bool> started{false};
+  if (!started.exchange(true)) {
+    timeBeginPeriod(1);
+    std::thread(SpikeSampler, GetCurrentThreadId(), "game").detach();
+    DWORD gpu = FindThreadByName("GPU Commands");
+    if (gpu) {
+      std::thread(SpikeSampler, gpu, "gpu").detach();
+    } else {
+      REXLOG_WARN("[spike] GPU thread not found");
+    }
+    Sleep(20);  // the samplers register themselves first
+    std::thread(SpikeOthers, GetCurrentThreadId(), gpu).detach();
+  }
+  static uint64_t last = 0;
+  uint64_t now = NowNs();
+  if (last && now - last >= uint64_t(limit) * 1000000ull) {
+    g_spike_from = last;
+    g_spike_to = now;
+    g_spike_seq++;
+  }
+  last = now;
+}
+
 inline void Call(Kind kind, const char* name, ImportFn& fn, PPCContext& ctx, uint8_t* base) {
   if (!fn) fn = Resolve(name);
   if (!REXCVAR_GET(ufc3_perf_probe)) {
     fn(ctx, base);
+    if (kind == kSwap) SpikeOnSwap();
     return;
   }
   Slot* slot = MySlot();

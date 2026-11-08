@@ -4,8 +4,11 @@
 #   tools\release.ps1 [-GameBuild <dir with ufc3.exe>] [-OutDir dist\<date>] [-Version v1.0] [-AllowRdDlls]
 # The Mod Pack is separate (tools\build_modpack.py, hosted elsewhere).
 # Recomp zip, inside one UFC3-Recomp-<Version>\ folder: UFC3 Launcher.exe, ufc3.exe, SDK DLLs + app-local
-# VC++ runtime, ufc3.toml, dlss5\ (scripts + templates), README.txt, empty mods\.
-# No game files, PDB, assets, saves or logs.
+# VC++ runtime, ufc3.toml, dlss5\ (scripts + templates), README.txt, LICENSE.txt, CREDITS.md, empty mods\.
+# Builds with the native renderer also carry the shader cache tools: ufc3_shader_cache.exe, XenosRecomp.exe,
+# ufc3_prelink.exe, dxcompiler.dll, dxil.dll (the launcher runs them on the player's own disc files).
+# Plus pipelines_seed.bin (config\native) so first-use pipelines are built at load, not mid-fight.
+# No game files, PDB, assets, saves, shader caches or logs.
 # Default GameBuild: out\build\win-amd64-release (tools\build_release.bat); the RelWithDebInfo build
 # works with -AllowRdDlls.
 param(
@@ -44,6 +47,23 @@ Get-ChildItem $GameBuild -Filter *.dll | ForEach-Object { Copy-Item $_.FullName 
 $rd = Get-ChildItem $stage -Filter *.dll | Where-Object { $_.Name -match 'rd\.dll$|Tracy' }
 if ($rd -and -not $AllowRdDlls) { throw "dev (rd/Tracy) DLLs in package: $($rd.Name -join ', ') - use a Release build or -AllowRdDlls" }
 
+# Native renderer builds: same check as the launcher (launcher/NativeRenderer.cs). Without these five the launcher
+# can't build the cache and Native falls back to Emulated, so a native package missing one is an error.
+$exeText = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes("$GameBuild\ufc3.exe"))
+if ($exeText.Contains('native: renderer on (experimental')) {
+  foreach ($f in 'ufc3_shader_cache.exe', 'XenosRecomp.exe', 'ufc3_prelink.exe', 'dxcompiler.dll', 'dxil.dll') {
+    if (-not (Test-Path "$GameBuild\$f")) { throw "native build without $f in $GameBuild : build it with build.bat native" }
+    Copy-Item "$GameBuild\$f" $stage -Force
+  }
+  # Pipeline seed (NR-15b): the game reads pipelines_seed.bin beside shader_cache.bin (beside the exe by default).
+  # Without it every pipeline compiles on first use during play. Shader content hashes only, no game data.
+  $seed = "$root\config\native\pipelines_seed.bin"
+  if (-not (Test-Path $seed)) { throw "native build without $seed (tools\nr_pso_seed.py)" }
+  Copy-Item $seed $stage -Force
+  'Native renderer build: shader cache tools + pipeline seed included'
+}
+Remove-Variable exeText
+
 # App-local VC++ runtime so players need no redistributable installer.
 $crt = Get-ChildItem 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT' -ErrorAction SilentlyContinue |
   Sort-Object Name -Descending | Select-Object -First 1
@@ -66,6 +86,9 @@ resolution_scale = 2
 "@ | Set-Content -Encoding ascii "$stage\ufc3.toml"
 
 Copy-Item "$PSScriptRoot\release\README.txt" "$stage\README.txt"
+# GPL-3.0: the licence and the third-party credits travel with every download.
+Copy-Item "$PSScriptRoot\..\LICENSE" "$stage\LICENSE.txt"
+Copy-Item "$PSScriptRoot\..\CREDITS.md" "$stage\CREDITS.md"
 
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::CreateFromDirectory($stage, $zip, [IO.Compression.CompressionLevel]::Optimal, $true)

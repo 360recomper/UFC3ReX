@@ -1,0 +1,287 @@
+diff --git a/XenosRecomp/main.cpp b/XenosRecomp/main.cpp
+index 754198c..88f15e7 100644
+--- a/XenosRecomp/main.cpp
++++ b/XenosRecomp/main.cpp
+@@ -43,6 +43,61 @@ struct ShaderFailure
+ static std::mutex g_failureMutex;
+ static std::vector<ShaderFailure> g_failures;
+ 
++// UFC 3: shader_cache.bin, the D3D12-only cache the native renderer loads at run time. Game shaders
++// can't ship, so it's built on the player's machine from their own disc files. Little-endian:
++//   header   { char magic[8] = "UFCSHC01"; u32 version = 1; u32 entryCount;
++//              u64 dxilCompressedSize; u64 dxilSize; }
++//   entries  { u64 hash; u32 dxilOffset; u32 dxilSize; u32 specConstantsMask; u32 reserved; }
++//            x entryCount, sorted by hash (XXH3 of the whole container, as the cpp cache)
++//   zstd(all DXIL blobs)
++// Shaders that failed are left out (listed on stderr); the runtime logs them as misses.
++struct BinaryCacheHeader
++{
++    char magic[8];
++    uint32_t version;
++    uint32_t entryCount;
++    uint64_t dxilCompressedSize;
++    uint64_t dxilSize;
++};
++
++struct BinaryCacheEntry
++{
++    uint64_t hash;
++    uint32_t dxilOffset;
++    uint32_t dxilSize;
++    uint32_t specConstantsMask;
++    uint32_t reserved;
++};
++
++static int writeBinaryCache(const char* output, const std::map<XXH64_hash_t, RecompiledShader>& shaders)
++{
++    std::vector<BinaryCacheEntry> entries;
++    std::vector<uint8_t> dxil;
++    for (auto& [hash, shader] : shaders)
++    {
++        if (shader.dxil == nullptr)
++            continue;
++        const auto* data = reinterpret_cast<const uint8_t*>(shader.dxil->GetBufferPointer());
++        entries.push_back({ hash, uint32_t(dxil.size()), uint32_t(shader.dxil->GetBufferSize()), shader.specConstantsMask, 0 });
++        dxil.insert(dxil.end(), data, data + shader.dxil->GetBufferSize());
++    }
++
++    std::vector<uint8_t> compressed(ZSTD_compressBound(dxil.size()));
++    compressed.resize(ZSTD_compress(compressed.data(), compressed.size(), dxil.data(), dxil.size(), ZSTD_maxCLevel()));
++
++    BinaryCacheHeader header = { { 'U', 'F', 'C', 'S', 'H', 'C', '0', '1' }, 1, uint32_t(entries.size()),
++        compressed.size(), dxil.size() };
++    std::vector<uint8_t> file(sizeof(header) + entries.size() * sizeof(BinaryCacheEntry) + compressed.size());
++    memcpy(file.data(), &header, sizeof(header));
++    memcpy(file.data() + sizeof(header), entries.data(), entries.size() * sizeof(BinaryCacheEntry));
++    memcpy(file.data() + sizeof(header) + entries.size() * sizeof(BinaryCacheEntry), compressed.data(), compressed.size());
++    writeAllBytes(output, file.data(), file.size());
++
++    fmt::println("shader_cache.bin: {} of {} shaders, {} -> {} bytes, xxh3 {:016X}", entries.size(), shaders.size(),
++        dxil.size(), compressed.size(), XXH3_64bits(file.data(), file.size()));
++    return 0;
++}
++
+ int main(int argc, char** argv)
+ {
+ #ifndef XENOS_RECOMP_INPUT
+@@ -77,6 +132,12 @@ int main(int argc, char** argv)
+ #endif
+         ;
+ 
++#ifdef XENOS_RECOMP_DXIL
++    const bool dxilOnly = std::filesystem::path(output).extension() == ".bin";
++#else
++    const bool dxilOnly = false;
++#endif
++
+     std::string hlslDumpDir;
+     if (argc > 4)
+         hlslDumpDir = argv[4];
+@@ -157,7 +218,15 @@ int main(int argc, char** argv)
+ 
+                 thread_local ShaderRecompiler recompiler;
+                 recompiler = {};
+-                recompiler.recompile(shader.data, include);
++                try
++                {
++                    recompiler.recompile(shader.data, include);
++                }
++                catch (const std::exception& e)
++                {
++                    recordFailure(e.what());
++                    return;
++                }
+ 
+                 shader.specConstantsMask = recompiler.specConstantsMask;
+ 
+@@ -193,6 +262,12 @@ int main(int argc, char** argv)
+                 }
+ #endif
+ 
++                if (dxilOnly)
++                {
++                    ++progress;
++                    return;
++                }
++
+                 IDxcBlob* spirv = dxcCompiler.compile(recompiler.out, recompiler.isPixelShader, false, true);
+                 if (spirv == nullptr)
+                 {
+@@ -216,12 +291,19 @@ int main(int argc, char** argv)
+ 
+         if (!g_failures.empty())
+         {
++            std::sort(g_failures.begin(), g_failures.end(),
++                [](const ShaderFailure& a, const ShaderFailure& b) { return a.hash < b.hash; });
+             fmt::println(stderr, "Recompile failures ({}):", g_failures.size());
+             for (const auto& failure : g_failures)
+-                fmt::println(stderr, "  hash=0x{:016X} reason={}", failure.hash, failure.reason);
+-            return 2;
++                fmt::println(stderr, "  hash=0x{:016X} source={} reason={}", failure.hash,
++                    shaders[failure.hash].sourceName, failure.reason);
++            if (!dxilOnly)
++                return 2;
+         }
+ 
++        if (dxilOnly)
++            return writeBinaryCache(output, shaders);
++
+         fmt::println("Creating shader cache...");
+ 
+         StringBuffer f;
+diff --git a/XenosRecomp/shader_common.h b/XenosRecomp/shader_common.h
+index 13e6683..ad9337d 100644
+--- a/XenosRecomp/shader_common.h
++++ b/XenosRecomp/shader_common.h
+@@ -32,7 +32,13 @@
+     X(Color,         0, 12) \
+     X(Tangent,       0, 13) \
+     X(TexCoord,      2, 14) \
+-    X(Color,         1, 15)
++    X(Color,         1, 15) \
++    X(BlendIndices,  1, 16) \
++    X(Color,         2, 17) \
++    X(PointSize,     0, 18) \
++    X(Binormal,      0, 19)
++// UFC 3: locations 16-19 (second bone set, COLOR2, PSIZE, BINORMAL) go past Vulkan's guaranteed 16;
++// fine on D3D12 (32 inputs), the only API UFC's native renderer builds.
+ 
+ // SPEC_CONSTANTS_ONLY keeps the HLSL below out of host C++ TUs, which IntelliSense would otherwise parse.
+ #if (!defined(__cplusplus) || defined(__INTELLISENSE__)) && !defined(SHADER_COMMON_SPEC_CONSTANTS_ONLY)
+diff --git a/XenosRecomp/shader_recompiler.cpp b/XenosRecomp/shader_recompiler.cpp
+index acdfeea..b3d35bd 100644
+--- a/XenosRecomp/shader_recompiler.cpp
++++ b/XenosRecomp/shader_recompiler.cpp
+@@ -1,6 +1,13 @@
+ #include "shader_recompiler.h"
+ #include "shader_common.h"
+ 
++#include <stdexcept>
++
++// UFC 3: the recompiler's checks throw, in Release too, so main.cpp reports and skips one bad shader
++// instead of the whole batch dying on it (a Release assert is compiled out and derefs end()).
++#define XR_CHECK(cond) \
++    do { if (!(cond)) throw std::runtime_error(fmt::format("check failed line {}: {}", __LINE__, #cond)); } while (0)
++
+ static constexpr char SWIZZLES[] = 
+ { 
+     'x',
+@@ -137,6 +144,14 @@ static constexpr std::pair<DeclUsage, size_t> INTERPOLATORS[] =
+     { DeclUsage::Color, 2 },
+     { DeclUsage::Color, 3 },
+     { DeclUsage::Color, 4 },
++    // UFC 3 also passes NORMAL0-3 / TANGENT / BINORMAL / FOG between its shaders; 28 vec4 outputs.
++    { DeclUsage::Normal, 0 },
++    { DeclUsage::Normal, 1 },
++    { DeclUsage::Normal, 2 },
++    { DeclUsage::Normal, 3 },
++    { DeclUsage::Tangent, 0 },
++    { DeclUsage::Binormal, 0 },
++    { DeclUsage::Fog, 0 },
+ #endif
+ };
+ 
+@@ -212,7 +227,7 @@ void ShaderRecompiler::recompile(const VertexFetchInstruction& instr, uint32_t a
+     out += " = ";
+ 
+     auto findResult = vertexElements.find(address);
+-    assert(findResult != vertexElements.end());
++    XR_CHECK(findResult != vertexElements.end());
+ 
+ #ifdef REBLUE_RECOMP
+     // Wrap each 16-bit-packed semantic in swapFloats() (per-usage mask); TEXCOORD also runs sintTexcoord() for raw-int bindings.
+@@ -568,6 +583,17 @@ void ShaderRecompiler::recompile(const AluInstruction& instr)
+                 break;
+             }
+ 
++            // UFC 3: each constant operand has its own relative flag, picked as Xenia's
++            // src_const_is_addressed() does: const0 for the first constant operand, const1 after it.
++            // The skinning shaders read g_fBruiseLv[a0] and the literal c255 in one instruction.
++            bool relative;
++            if (operand == VECTOR_0)
++                relative = instr.const0Relative;
++            else if (operand == VECTOR_1)
++                relative = instr.src1Select ? instr.const0Relative : instr.const1Relative;
++            else
++                relative = (instr.src1Select && instr.src2Select) ? instr.const0Relative : instr.const1Relative;
++
+             std::string regFormatted;
+ 
+             if (select)
+@@ -592,18 +618,18 @@ void ShaderRecompiler::recompile(const AluInstruction& instr)
+                     #endif
+                         {
+                             regFormatted = fmt::format("{}({}{})", constantName,
+-                                reg - findResult->second->registerIndex, instr.const0Relative ? (instr.constAddressRegisterRelative ? " + a0" : " + aL") : "");
++                                reg - findResult->second->registerIndex, relative ? (instr.constAddressRegisterRelative ? " + a0" : " + aL") : "");
+                         }
+                     }
+                     else
+                     {
+-                        assert(!instr.const0Relative && !instr.const1Relative);
++                        XR_CHECK(!relative);
+                         regFormatted = constantName;
+                     }
+                 }
+                 else
+                 {
+-                    assert(!instr.const0Relative && !instr.const1Relative);
++                    XR_CHECK(!relative);
+                     regFormatted = fmt::format("c{}", reg);
+                 }
+             }
+@@ -747,7 +773,7 @@ void ShaderRecompiler::recompile(const AluInstruction& instr)
+             default:
+             {
+                 auto findResult = interpolators.find(instr.vectorDest);
+-                assert(findResult != interpolators.end());
++                XR_CHECK(findResult != interpolators.end());
+                 exportRegister = findResult->second;
+                 break;
+             }
+@@ -1297,8 +1323,8 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
+ {
+     const auto shaderContainer = reinterpret_cast<const ShaderContainer*>(shaderData);
+ 
+-    assert((shaderContainer->flags & 0xFFFFFF00) == 0x102A1100);
+-    assert(shaderContainer->constantTableOffset != NULL);
++    XR_CHECK((shaderContainer->flags & 0xFFFFFF00) == 0x102A1100);
++    XR_CHECK(shaderContainer->constantTableOffset != NULL);
+ 
+     isPixelShader = (shaderContainer->flags & 0x1) == 0;
+ 
+@@ -1578,6 +1604,7 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
+     else
+     {
+         auto vertexShader = reinterpret_cast<const VertexShader*>(shader);
++        std::unordered_set<uint32_t> declaredInputs;
+         for (uint32_t i = 0; i < vertexShader->vertexElementCount; i++)
+         {
+             union
+@@ -1588,6 +1615,12 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
+ 
+             value = vertexShader->vertexElementsAndInterpolators[vertexShader->field18 + i];
+ 
++            // UFC 3 (yInstance): two vfetches of the same element list it twice. Both fetch
++            // addresses map to it, but the input is declared once.
++            vertexElements.emplace(uint32_t(vertexElement.address), vertexElement);
++            if (!declaredInputs.insert((uint32_t(vertexElement.usage) << 8) | uint32_t(vertexElement.usageIndex)).second)
++                continue;
++
+             const char* usageType = USAGE_TYPES[uint32_t(vertexElement.usage)];
+ 
+         #ifdef UNLEASHED_RECOMP
+@@ -1610,12 +1643,10 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
+                     break;
+                 }
+             }
+-            assert(locatedInput);
++            XR_CHECK(locatedInput);
+ 
+             println("in {0} i{1}{2} : {3}{2},", usageType, USAGE_VARIABLES[uint32_t(vertexElement.usage)],
+                 uint32_t(vertexElement.usageIndex), USAGE_SEMANTICS[uint32_t(vertexElement.usage)]);
+-
+-            vertexElements.emplace(uint32_t(vertexElement.address), vertexElement);
+         }
+ 
+     #ifdef UNLEASHED_RECOMP

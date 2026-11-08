@@ -113,6 +113,7 @@ public static class Updater
     public static bool IsProgramFile(string rel) =>
         Regex.IsMatch(rel, @"^[^/]+\.(exe|dll|pdb)$", RegexOptions.IgnoreCase)
         || rel.Equals(LauncherName, StringComparison.OrdinalIgnoreCase)
+        || rel.Equals("pipelines_seed.bin", StringComparison.OrdinalIgnoreCase)   // native renderer's pipeline seed (1.1.0)
         || (Regex.IsMatch(rel, @"^[^/]+\.(md|html|txt)$", RegexOptions.IgnoreCase) && !rel.Equals("version.txt", StringComparison.OrdinalIgnoreCase))
         || Regex.IsMatch(rel, @"^licenses/[^/]+$", RegexOptions.IgnoreCase);
 

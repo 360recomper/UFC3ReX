@@ -27,9 +27,14 @@ REXCVAR_DEFINE_BOOL(ufc3_steady_skin_light, true, "ufc3",
                     "Keep the fighters' stand-up (side camera) lighting on clinch/ground cameras "
                     "instead of the game's darker top-down blend");
 
+// Share of the original top-down blend kept with the option on. At 0 thin chest blood on a fighter
+// lying down reads pale pink (dmg4z5-heavy vs -nosteady), under the pale wrap/rim light.
+REXCVAR_DEFINE_DOUBLE(ufc3_steady_skin_topdown, 0.0, "ufc3",
+                      "With ufc3_steady_skin_light on: how much of the top-down blend to keep, 0..1");
+
 REX_EXTERN(__imp__sub_82EEB500);  // camera-pitch weight for the fighter lighting (f1, 0 = side camera)
 
 extern "C" REX_FUNC(sub_82EEB500) {
   __imp__sub_82EEB500(ctx, base);
-  if (REXCVAR_GET(ufc3_steady_skin_light)) ctx.f1.f64 = 0.0;
+  if (REXCVAR_GET(ufc3_steady_skin_light)) ctx.f1.f64 *= REXCVAR_GET(ufc3_steady_skin_topdown);
 }

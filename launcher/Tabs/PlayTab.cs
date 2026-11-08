@@ -17,7 +17,7 @@ public class PlayTab : ILauncherTab
     readonly Label updInfo = Ui.Text("");
     readonly CheckBox checkUpd = new() { Text = "Check for updates when the launcher starts", AutoSize = true };
     Updater.Release? latest;
-    bool loading, updating;
+    bool loading, updating, buildingCache;
 
     /// <summary>Raised (UI thread) when the check finds a newer release.</summary>
     public event Action<Updater.Release>? UpdateFound;
@@ -62,10 +62,11 @@ public class PlayTab : ILauncherTab
         dlss.Enabled = Dlss5.IsSetUp;
         dlssHint.Text = Dlss5.IsSetUp ? "4K at 60 fps with NVIDIA DLSS 5. Its look is set in the DLSS 5 tab. In game: F9 = DLSS 5 on/off."
             : "DLSS 5 is not set up yet: see the DLSS 5 tab.";
-        play.Enabled = Paths.IsInstalled && Paths.AssetsReady && !updating;
-        info.Text = !Paths.IsInstalled ? "ufc3.exe is not next to this launcher. Put the launcher in the play folder."
-            : !Paths.AssetsReady ? "The game files are not set up yet. Open the Setup tab and choose your UFC Undisputed 3 .iso."
-            : "";
+        play.Enabled = Paths.IsInstalled && Paths.AssetsReady && !updating && !buildingCache;
+        if (!buildingCache)
+            info.Text = !Paths.IsInstalled ? "ufc3.exe is not next to this launcher. Put the launcher in the play folder."
+                : !Paths.AssetsReady ? "The game files are not set up yet. Open the Setup tab and choose your UFC Undisputed 3 .iso."
+                : "";
         UpdatePlayText();
     }
 
@@ -127,15 +128,40 @@ public class PlayTab : ILauncherTab
 
     static void OpenUrl(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
-    void Launch()
+    async void Launch()
     {
         try
         {
             if (Dlss5.GameRunning()) { info.Text = "The game is already running."; return; }
             if (UseDlss5) { Dlss5.PlayFrom(root, Config.Load()); return; }
+            if (NativeRenderer.Selected)
+            {
+                if (!ShaderCache.Current)
+                {
+                    buildingCache = true; play.Enabled = false;
+                    info.Text = "Building the native renderer's shader cache from your game files. This only happens once...";
+                    string? failed;
+                    try { failed = await Task.Run(NativeRenderer.PrepareCache); }
+                    finally { buildingCache = false; }
+                    info.Text = "";
+                    if (failed != null)
+                    {
+                        MessageBox.Show(NativeRenderer.FallbackText(failed), "UFC3 Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        NativeRenderer.LaunchEmulated();
+                        Application.Exit();
+                        return;
+                    }
+                }
+                NativeRenderer.PlayFrom(root);
+                return;
+            }
             Process.Start(new ProcessStartInfo(Paths.GameExe) { WorkingDirectory = Paths.Root, UseShellExecute = false });
             Application.Exit();
         }
-        catch (Exception ex) { info.Text = "Could not start the game: " + ex.Message; }
+        catch (Exception ex)
+        {
+            info.Text = "Could not start the game: " + ex.Message;
+            play.Enabled = Paths.IsInstalled && Paths.AssetsReady && !updating;
+        }
     }
 }

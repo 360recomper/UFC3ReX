@@ -14,6 +14,7 @@
 
 #include <rex/cvar.h>
 
+#include "bloom_patterns.h"  // kOrig, kPatch, kPatchOffset (shared with the shader cache tool)
 #include "shader_patch.h"
 
 REXCVAR_DEFINE_BOOL(ufc3_no_bloom, false, "ufc3",
@@ -21,21 +22,11 @@ REXCVAR_DEFINE_BOOL(ufc3_no_bloom, false, "ufc3",
 
 namespace ufc3_no_bloom {
 
-// Last two ALU instructions of the bright-pass shader (big-endian dwords) and
-// the replacement for the last one: ADDv oC0 = r0 + (-r0) instead of MULv.
-inline constexpr uint8_t kOrig[] = {
-    0x4c, 0x1e, 0x00, 0x00, 0x00, 0xfc, 0xb1, 0x6c, 0xe1, 0x01, 0x00, 0x00,  // ALU3
-    0xc8, 0x8f, 0xc0, 0x00, 0x00, 0x15, 0x6c, 0x00, 0xe1, 0x00, 0x00, 0x00,  // ALU4
-};
-inline constexpr uint8_t kPatch[] = {
-    0xc8, 0x8f, 0xc0, 0x00, 0x04, 0x6c, 0x6c, 0x00, 0xe0, 0x00, 0x00, 0x00,
-};
-
 inline ufc3_shader_patch::Feature g_feature = [] {
   ufc3_shader_patch::Feature f;
   f.name = "no_bloom";
   f.wanted = [] { return REXCVAR_GET(ufc3_no_bloom); };
-  f.targets.push_back({kOrig, sizeof(kOrig), 12, kPatch, sizeof(kPatch)});
+  f.targets.push_back({kOrig, sizeof(kOrig), kPatchOffset, kPatch, sizeof(kPatch)});
   f.sites.resize(1);
   return f;
 }();

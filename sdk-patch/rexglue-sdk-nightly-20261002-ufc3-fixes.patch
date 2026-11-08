@@ -407,10 +407,22 @@ index 96d362b..dbb17b4 100644
    uint32_t resolve_downscale_buffer_size_ = 0;
  
 diff --git a/include/rex/graphics/d3d12/texture_cache.h b/include/rex/graphics/d3d12/texture_cache.h
-index 4d845c7..e4b2270 100644
+index 4d845c7..2474502 100644
 --- a/include/rex/graphics/d3d12/texture_cache.h
 +++ b/include/rex/graphics/d3d12/texture_cache.h
-@@ -175,6 +175,13 @@ class D3D12TextureCache final : public TextureCache {
+@@ -113,7 +113,10 @@ class D3D12TextureCache final : public TextureCache {
+                                     D3D12_CPU_DESCRIPTOR_HANDLE handle);
+   uint32_t GetActiveTextureBindlessSRVIndex(const D3D12Shader::TextureBinding& host_shader_binding);
+ 
+-  SamplerParameters GetSamplerParameters(const D3D12Shader::SamplerBinding& binding) const;
++  // point_to_linear: a point mag filter becomes linear min/mag
++  // (IsScaledPointCopyFetch).
++  SamplerParameters GetSamplerParameters(const D3D12Shader::SamplerBinding& binding,
++                                         bool point_to_linear = false) const;
+   void WriteSampler(SamplerParameters parameters, D3D12_CPU_DESCRIPTOR_HANDLE handle) const;
+ 
+   // Returns whether the actual scale is not smaller than the requested one.
+@@ -175,6 +178,13 @@ class D3D12TextureCache final : public TextureCache {
    // This binds pipelines, allocates descriptors, and copies!
    bool LoadTextureDataFromResidentMemoryImpl(Texture& texture, bool load_base,
                                               bool load_mips) override;
@@ -424,7 +436,7 @@ index 4d845c7..e4b2270 100644
  
    void UpdateTextureBindingsImpl(uint32_t fetch_constant_mask) override;
  
-@@ -461,6 +468,30 @@ class D3D12TextureCache final : public TextureCache {
+@@ -461,6 +471,30 @@ class D3D12TextureCache final : public TextureCache {
    std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, kLoadShaderCount> load_pipelines_;
    // Load pipelines for resolution-scaled resolve targets.
    std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, kLoadShaderCount> load_pipelines_scaled_;
@@ -456,7 +468,7 @@ index 4d845c7..e4b2270 100644
    std::vector<SRVDescriptorCachePage> srv_descriptor_cache_;
    uint32_t srv_descriptor_cache_allocated_;
 diff --git a/include/rex/graphics/flags.h b/include/rex/graphics/flags.h
-index 2cf24c4..5de4a26 100644
+index 2cf24c4..48ff81d 100644
 --- a/include/rex/graphics/flags.h
 +++ b/include/rex/graphics/flags.h
 @@ -25,6 +25,9 @@ REXCVAR_DECLARE(int32_t, draw_resolution_scale_x);
@@ -489,6 +501,60 @@ index 2cf24c4..5de4a26 100644
  
  // GPU Primitive Processing
  REXCVAR_DECLARE(bool, execute_unclipped_draw_vs_on_cpu);
+@@ -72,6 +88,10 @@ REXCVAR_DECLARE(bool, use_fuzzy_alpha_epsilon);
+ 
+ // GPU Shader Translation
+ REXCVAR_DECLARE(std::string, dump_shaders);
++REXCVAR_DECLARE(std::string, debug_vfetch_zero);
++REXCVAR_DECLARE(std::string, debug_skip_pixel_shader);
++REXCVAR_DECLARE(bool, debug_draw_census);
++REXCVAR_DECLARE(std::string, debug_skip_draw_indices);
+ REXCVAR_DECLARE(std::string, swap_post_effect);
+ 
+ #if REX_HAS_VULKAN
+diff --git a/include/rex/graphics/null/graphics_system.h b/include/rex/graphics/null/graphics_system.h
+new file mode 100644
+index 0000000..21f3cf8
+--- /dev/null
++++ b/include/rex/graphics/null/graphics_system.h
+@@ -0,0 +1,37 @@
++/**
++ * @file        graphics/null/graphics_system.h
++ * @brief       Guest GPU that keeps the command stream moving but draws nothing.
++ *
++ * Added for the WWE SmackDown vs. Raw 2008 native renderer. The game's own D3D library keeps
++ * running unmodified (device creation, ring buffer, fences, interrupts, vblank pacing); this
++ * backend consumes what it writes through the shared CommandProcessor (MMIO, fences, events,
++ * interrupts, waits) and skips every draw, resolve and swap. The app renders natively by hooking
++ * the game's D3D draw calls, and owns the window: there is no provider or presenter here, so
++ * ReXApp runs in its detached mode (OnCreateImmediateDrawer).
++ */
++
++#pragma once
++
++#include <memory>
++#include <string>
++
++#include <rex/graphics/command_processor.h>
++#include <rex/graphics/graphics_system.h>
++
++namespace rex::graphics::null_gpu {
++
++class NullGraphicsSystem : public GraphicsSystem {
++ public:
++  std::string name() const override { return "Null"; }
++
++  // No host GPU and no presenter: the app brings its own renderer.
++  X_STATUS SetupPresentation(::rex::ui::WindowedAppContext* app_context) override;
++
++ protected:
++  void CreateProvider(bool with_presentation) override;
++
++ private:
++  std::unique_ptr<CommandProcessor> CreateCommandProcessor() override;
++};
++
++}  // namespace rex::graphics::null_gpu
 diff --git a/include/rex/graphics/pipeline/render_target/cache.h b/include/rex/graphics/pipeline/render_target/cache.h
 index 3bbd52e..271840c 100644
 --- a/include/rex/graphics/pipeline/render_target/cache.h
@@ -601,10 +667,18 @@ index dce3dbf..b8719b9 100644
    // Must be called before emitting any SPIR-V operations that must be in a
    // block in translator callbacks to ensure that if the last instruction added
 diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
-index d26cd4f..444bc01 100644
+index d26cd4f..358eb81 100644
 --- a/include/rex/graphics/pipeline/texture/cache.h
 +++ b/include/rex/graphics/pipeline/texture/cache.h
-@@ -81,6 +81,80 @@ class TextureCache {
+@@ -16,6 +16,7 @@
+ #include <cstring>
+ #include <memory>
+ #include <unordered_map>
++#include <unordered_set>
+ #include <vector>
+ 
+ #include <rex/assert.h>
+@@ -81,6 +82,80 @@ class TextureCache {
    virtual void BeginFrame();
  
    void MarkRangeAsResolved(uint32_t start_unscaled, uint32_t length_unscaled);
@@ -685,7 +759,28 @@ index d26cd4f..444bc01 100644
    // Ensures the memory backing the range in the scaled resolve address space is
    // allocated and returns whether it is.
    virtual bool EnsureScaledResolveMemoryCommitted(uint32_t /*start_unscaled*/,
-@@ -527,6 +601,36 @@ class TextureCache {
+@@ -129,6 +204,20 @@ class TextureCache {
+     return (binding->texture && binding->texture->key().scaled_resolve) ||
+            (binding->texture_signed && binding->texture_signed->key().scaled_resolve);
+   }
++  // At a draw resolution scale > 1 (scaled_point_to_linear): whether a fetch
++  // with a point mag filter (binding_mag_filter, or the fetch constant's when
++  // kUseFetchConst) reads a texture not loaded scaled whose 1x size equals the
++  // draw's 1x scissor, i.e. a 1:1 copy into the render target (a composite
++  // layer). Point would turn every texel into a block of scale x scale pixels,
++  // so such fetches should filter linearly. Uses the active texture bindings
++  // (call after RequestTextures). scaled_point_fetch_log logs point fetches
++  // once per texture and render target.
++  bool IsScaledPointCopyFetch(uint32_t fetch_constant_index,
++                              xenos::TextureFilter binding_mag_filter);
++  // scaled_composite_fetch_log: logs a fetch into an offscreen render target
++  // (a composite) once per texture and render target, with the texture's
++  // scaled page state. Called from IsScaledPointCopyFetch.
++  void LogCompositeFetch(uint32_t fetch_constant_index, xenos::TextureFilter mag_filter);
+ 
+  protected:
+   struct TextureKey {
+@@ -527,6 +616,36 @@ class TextureCache {
    // into the texture object.
    virtual bool LoadTextureDataFromResidentMemoryImpl(Texture& texture, bool load_base,
                                                       bool load_mips) = 0;
@@ -722,7 +817,7 @@ index d26cd4f..444bc01 100644
  
    // Converts a texture fetch constant to a texture key, normalizing and
    // validating the values, or creating an invalid key, and also gets the
-@@ -571,6 +675,27 @@ class TextureCache {
+@@ -571,6 +690,27 @@ class TextureCache {
    // Checks if there are any pages that contain scaled resolve data within the
    // range.
    bool IsRangeScaledResolved(uint32_t start_unscaled, uint32_t length_unscaled);
@@ -750,7 +845,7 @@ index d26cd4f..444bc01 100644
    // Global shared memory invalidation callback for invalidating scaled resolved
    // texture data.
    static void ScaledResolveGlobalWatchCallbackThunk(
-@@ -592,6 +717,15 @@ class TextureCache {
+@@ -592,6 +732,15 @@ class TextureCache {
    // resolve data. uint32_t rather than uint64_t because parts of it can be sent
    // to shaders.
    std::unique_ptr<uint32_t[]> scaled_resolve_pages_;
@@ -766,7 +861,7 @@ index d26cd4f..444bc01 100644
    // Second level of the bit vector for faster rejection of non-scaled textures.
    // >> 12 for 4 KB pages, >> 5 for uint32_t level 1 bits, >> 6 for uint64_t
    // level 2 bits.
-@@ -600,6 +734,39 @@ class TextureCache {
+@@ -600,6 +749,43 @@ class TextureCache {
    // Global watch for scaled resolve data invalidation.
    SharedMemory::GlobalWatchHandle scaled_resolve_global_watch_handle_ = nullptr;
  
@@ -781,6 +876,10 @@ index d26cd4f..444bc01 100644
 +  uint32_t mixed_texture_log_count_ = 0;
 +  uint32_t tail_composite_log_count_ = 0;
 +  uint64_t mixed_texture_count_ = 0;
++  // Texture + render target pairs scaled_point_fetch_log already logged.
++  std::unordered_set<uint64_t> scaled_point_fetch_logged_;
++  // scaled_composite_fetch_log: texture + render target pairs logged so far.
++  std::unordered_set<uint64_t> scaled_composite_fetch_logged_;
 +  // Last 1x (mixed, true) / scaled choice per top level address of scaled
 +  // textures, to log flips between them and keep them at 1x (sticky). The
 +  // shape (size, format, mips) is kept too, so a different texture reusing the
@@ -807,7 +906,7 @@ index d26cd4f..444bc01 100644
    uint64_t current_submission_time_ = 0;
  
 diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
-index 4d85a2b..83b9375 100644
+index 4d85a2b..7e3de5f 100644
 --- a/include/rex/graphics/shared_memory.h
 +++ b/include/rex/graphics/shared_memory.h
 @@ -11,6 +11,8 @@
@@ -819,6 +918,24 @@ index 4d85a2b..83b9375 100644
  #include <mutex>
  #include <utility>
  #include <vector>
+@@ -95,6 +97,8 @@ class SharedMemory {
+   // regions in those pages.
+   void RangeWrittenByGpu(uint32_t start, uint32_t length);
+ 
++  memory::Memory& memory() const { return memory_; }
++
+  protected:
+   SharedMemory(memory::Memory& memory);
+   // Call in implementation-specific initialization.
+@@ -110,8 +114,6 @@ class SharedMemory {
+   static constexpr uint32_t kHostGpuMemoryOptimalSparseAllocationLog2 = 22;
+   static_assert(kHostGpuMemoryOptimalSparseAllocationLog2 <= kBufferSizeLog2);
+ 
+-  memory::Memory& memory() const { return memory_; }
+-
+   uint32_t page_size_log2() const { return page_size_log2_; }
+ 
+   uint32_t host_gpu_memory_sparse_granularity_log2() const {
 @@ -140,6 +142,14 @@ class SharedMemory {
    virtual bool UploadRanges(
        const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges) = 0;
@@ -1365,10 +1482,22 @@ index 104bdad..288b984 100644
  
  }  // namespace rex::graphics::vulkan
 diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
-index 04856ee..cbcc282 100644
+index 04856ee..463268d 100644
 --- a/include/rex/graphics/vulkan/texture_cache.h
 +++ b/include/rex/graphics/vulkan/texture_cache.h
-@@ -118,7 +118,9 @@ class VulkanTextureCache final : public TextureCache {
+@@ -89,7 +89,10 @@ class VulkanTextureCache final : public TextureCache {
+   VkImageView GetActiveBindingOrNullImageView(uint32_t fetch_constant_index,
+                                               xenos::FetchOpDimension dimension, bool is_signed);
+ 
+-  SamplerParameters GetSamplerParameters(const VulkanShader::SamplerBinding& binding) const;
++  // point_to_linear: a point mag filter becomes linear min/mag
++  // (IsScaledPointCopyFetch).
++  SamplerParameters GetSamplerParameters(const VulkanShader::SamplerBinding& binding,
++                                         bool point_to_linear = false) const;
+ 
+   // Must be called for every used sampler at least once in a single submission,
+   // and a submission must be open for this to be callable.
+@@ -118,7 +121,9 @@ class VulkanTextureCache final : public TextureCache {
                                   xenos::TextureFormat& format_out,
                                   uint32_t* width_unscaled_out = nullptr,
                                   uint32_t* height_unscaled_out = nullptr,
@@ -1379,7 +1508,7 @@ index 04856ee..cbcc282 100644
  
    bool GetScaledResolveRange(uint32_t start_unscaled, uint32_t length_unscaled,
                               uint32_t length_scaled_alignment_log2, uint64_t& start_scaled_out,
-@@ -148,6 +150,13 @@ class VulkanTextureCache final : public TextureCache {
+@@ -148,6 +153,13 @@ class VulkanTextureCache final : public TextureCache {
  
    bool LoadTextureDataFromResidentMemoryImpl(Texture& texture, bool load_base,
                                               bool load_mips) override;
@@ -1393,7 +1522,7 @@ index 04856ee..cbcc282 100644
  
    void UpdateTextureBindingsImpl(uint32_t fetch_constant_mask) override;
  
-@@ -350,6 +359,31 @@ class VulkanTextureCache final : public TextureCache {
+@@ -350,6 +362,31 @@ class VulkanTextureCache final : public TextureCache {
    std::array<VkPipeline, kLoadShaderCount> load_pipelines_{};
    std::array<VkPipeline, kLoadShaderCount> load_pipelines_scaled_{};
  
@@ -2363,10 +2492,14 @@ index 682b23d..bfa4d79 100644
            entry->Delete();
            entry = nullptr;
 diff --git a/src/graphics/CMakeLists.txt b/src/graphics/CMakeLists.txt
-index da7ae1a..588ab3d 100644
+index da7ae1a..aa2655d 100644
 --- a/src/graphics/CMakeLists.txt
 +++ b/src/graphics/CMakeLists.txt
-@@ -20,6 +20,8 @@ set(REXGPU_XENOS_SOURCES
+@@ -17,9 +17,12 @@ set(REXGPU_XENOS_SOURCES
+ 
+     # GPU system
+     graphics_system.cpp
++    null/graphics_system.cpp
      command_processor.cpp
      util/draw_extent_estimator.cpp
      util/draw.cpp
@@ -3290,10 +3423,20 @@ index a744375..2f80a7c 100644
      if (is_memory) {
        value =
 diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
-index 19874a5..e6e7912 100644
+index 19874a5..81fbb47 100644
 --- a/src/graphics/d3d12/command_processor.cpp
 +++ b/src/graphics/d3d12/command_processor.cpp
-@@ -25,6 +25,7 @@
+@@ -12,7 +12,9 @@
+ #include <algorithm>
+ #include <cstdarg>
+ #include <cstring>
++#include <set>
+ #include <sstream>
++#include <tuple>
+ #include <utility>
+ 
+ #include <rex/assert.h>
+@@ -25,6 +27,7 @@
  #include <rex/graphics/flags.h>
  #include <rex/graphics/registers.h>
  #include <rex/graphics/util/draw.h>
@@ -3301,7 +3444,7 @@ index 19874a5..e6e7912 100644
  #include <rex/graphics/xenos.h>
  #include <rex/kernel/xboxkrnl/video.h>
  #include <rex/logging.h>
-@@ -60,6 +61,44 @@ namespace shaders {
+@@ -60,6 +63,44 @@ namespace shaders {
  #include "../shaders/bytecode/d3d12_5_1/resolve_downscale_cs.h"
  }  // namespace shaders
  
@@ -3346,7 +3489,7 @@ index 19874a5..e6e7912 100644
  D3D12CommandProcessor::D3D12CommandProcessor(D3D12GraphicsSystem* graphics_system,
                                               system::KernelState* kernel_state)
      : CommandProcessor(graphics_system, kernel_state), deferred_command_list_(*this) {
-@@ -1482,6 +1521,41 @@ bool D3D12CommandProcessor::SetupContext() {
+@@ -1482,6 +1523,41 @@ bool D3D12CommandProcessor::SetupContext() {
      resolve_downscale_pipeline_.Reset();
      resolve_downscale_root_signature_.Reset();
      REXGPU_WARN("Failed to initialize D3D12 resolve-downscale readback pipeline");
@@ -3388,7 +3531,7 @@ index 19874a5..e6e7912 100644
    }
  
    if (bindless_resources_used_) {
-@@ -1672,6 +1746,19 @@ void D3D12CommandProcessor::ShutdownContext() {
+@@ -1672,6 +1748,19 @@ void D3D12CommandProcessor::ShutdownContext() {
    scratch_buffer_size_ = 0;
    resolve_downscale_buffer_size_ = 0;
    resolve_downscale_buffer_.Reset();
@@ -3408,7 +3551,7 @@ index 19874a5..e6e7912 100644
  
    for (const std::pair<uint64_t, ID3D12Resource*>& resource_for_deletion :
         resources_for_deletion_) {
-@@ -1685,6 +1772,7 @@ void D3D12CommandProcessor::ShutdownContext() {
+@@ -1685,6 +1774,7 @@ void D3D12CommandProcessor::ShutdownContext() {
    fxaa_extreme_pipeline_.Reset();
    fxaa_pipeline_.Reset();
    fxaa_root_signature_.Reset();
@@ -3416,7 +3559,7 @@ index 19874a5..e6e7912 100644
    resolve_downscale_pipeline_.Reset();
    resolve_downscale_root_signature_.Reset();
  
-@@ -2284,6 +2372,12 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+@@ -2284,6 +2374,12 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
      return IssueCopy();
    }
  
@@ -3429,7 +3572,41 @@ index 19874a5..e6e7912 100644
    bool surface_pitch_is_zero = regs.Get<reg::RB_SURFACE_INFO>().surface_pitch == 0;
  
    // Vertex shader analysis.
-@@ -2327,6 +2421,20 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+@@ -2324,9 +2420,54 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+       return true;
+     }
+   }
++  if (REXCVAR_GET(debug_draw_census) && pixel_shader) {
++    static std::set<std::tuple<uint64_t, uint64_t, uint32_t>> census;
++    if (census.insert({vertex_shader->ucode_data_hash(), pixel_shader->ucode_data_hash(), index_count}).second) {
++      std::string layout;
++      for (const auto& binding : vertex_shader->vertex_bindings()) {
++        layout += fmt::format(" vf{}:s{}[", binding.fetch_constant, binding.stride_words);
++        for (const auto& attribute : binding.attributes) {
++          layout += fmt::format("{}/f{} ", attribute.fetch_instr.attributes.offset,
++                                uint32_t(attribute.fetch_instr.attributes.data_format));
++        }
++        layout += "]";
++      }
++      std::string textures;
++      for (const auto& binding : pixel_shader->texture_bindings()) {
++        textures += fmt::format(" tf{}", binding.fetch_constant);
++      }
++      REXLOG_INFO("[census] VS {:016X} PS {:016X} idx {} tf0 {:08X}{} |{}", vertex_shader->ucode_data_hash(),
++                  pixel_shader->ucode_data_hash(), index_count, regs.GetTextureFetch(0).base_address << 12, layout,
++                  textures);
++    }
++  }
++  const std::string& debug_skip_indices = REXCVAR_GET(debug_skip_draw_indices);
++  if (!debug_skip_indices.empty() &&
++      ("," + debug_skip_indices + ",").find("," + std::to_string(index_count) + ",") != std::string::npos) {
++    return true;
++  }
++  const std::string& debug_skip_ps = REXCVAR_GET(debug_skip_pixel_shader);
++  if (pixel_shader && !debug_skip_ps.empty() &&
++      debug_skip_ps == fmt::format("{:016X}", pixel_shader->ucode_data_hash())) {
++    return true;
++  }
    bool memexport_used_pixel = pixel_shader && (pixel_shader->memexport_eM_written() != 0);
    bool memexport_used = memexport_used_vertex || memexport_used_pixel;
  
@@ -3450,7 +3627,7 @@ index 19874a5..e6e7912 100644
    if (!BeginSubmission(true)) {
      return false;
    }
-@@ -2703,13 +2811,17 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+@@ -2703,13 +2844,17 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
      // Invalidate textures in memexported memory and watch for changes.
      if (!memexport_ranges_.empty()) {
        for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
@@ -3468,7 +3645,7 @@ index 19874a5..e6e7912 100644
      }
      if (IsReadbackMemexportEnabled(REXCVAR_GET(d3d12_readback_memexport)) &&
          !memexport_ranges_.empty()) {
-@@ -2718,11 +2830,13 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+@@ -2718,11 +2863,13 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
          memexport_total_size += memexport_range.size_bytes;
        }
        if (memexport_total_size != 0) {
@@ -3482,7 +3659,7 @@ index 19874a5..e6e7912 100644
        }
      }
    }
-@@ -2743,8 +2857,11 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_s
+@@ -2743,8 +2890,11 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_s
    shared_memory_->UseAsCopySource();
    SubmitBarriers();
    ID3D12Resource* shared_memory_buffer = shared_memory_->GetBuffer();
@@ -3494,7 +3671,7 @@ index 19874a5..e6e7912 100644
      deferred_command_list_.D3DCopyBufferRegion(
          readback_buffer, readback_buffer_offset, shared_memory_buffer,
          memexport_range.base_address_dwords << 2, memexport_range.size_bytes);
-@@ -2764,10 +2881,12 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_s
+@@ -2764,10 +2914,12 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_s
    }
  
    const uint8_t* readback_bytes = reinterpret_cast<const uint8_t*>(readback_mapping);
@@ -3509,7 +3686,7 @@ index 19874a5..e6e7912 100644
    }
  
    D3D12_RANGE readback_write_range = {};
-@@ -2838,8 +2957,11 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_s
+@@ -2838,8 +2990,11 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_s
    shared_memory_->UseAsCopySource();
    SubmitBarriers();
    ID3D12Resource* shared_memory_buffer = shared_memory_->GetBuffer();
@@ -3521,7 +3698,7 @@ index 19874a5..e6e7912 100644
      deferred_command_list_.D3DCopyBufferRegion(
          readback.buffers[write_index], readback_offset, shared_memory_buffer,
          memexport_range.base_address_dwords << 2, memexport_range.size_bytes);
-@@ -2861,10 +2983,16 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_s
+@@ -2861,10 +3016,16 @@ bool D3D12CommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_s
    }
  
    const uint8_t* readback_bytes = static_cast<const uint8_t*>(readback.mapped_data[read_index]);
@@ -3540,7 +3717,7 @@ index 19874a5..e6e7912 100644
    }
    readback.current_index = read_index;
    return true;
-@@ -2874,18 +3002,383 @@ bool D3D12CommandProcessor::IssueCopy() {
+@@ -2874,18 +3035,383 @@ bool D3D12CommandProcessor::IssueCopy() {
  #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
    SCOPE_profile_cpu_f("gpu");
  #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
@@ -3927,7 +4104,7 @@ index 19874a5..e6e7912 100644
  bool D3D12CommandProcessor::IssueCopy_ReadbackResolvePath() {
    uint32_t written_address, written_length;
    if (!render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_, written_address,
-@@ -3910,6 +4403,18 @@ void D3D12CommandProcessor::UpdateSystemConstantValues(
+@@ -3910,6 +4436,18 @@ void D3D12CommandProcessor::UpdateSystemConstantValues(
          dirty |= system_constants_.edram_rt_blend_factors_ops[i] != blend_factors_ops;
          system_constants_.edram_rt_blend_factors_ops[i] = blend_factors_ops;
        }
@@ -3946,6 +4123,19 @@ index 19874a5..e6e7912 100644
      }
    }
  
+@@ -4242,8 +4780,10 @@ bool D3D12CommandProcessor::UpdateBindings(const D3D12Shader* vertex_shader,
+       current_samplers_pixel_.resize(
+           std::max(current_samplers_pixel_.size(), size_t(sampler_count_pixel)));
+       for (uint32_t i = 0; i < sampler_count_pixel; ++i) {
+-        D3D12TextureCache::SamplerParameters parameters =
+-            texture_cache_->GetSamplerParameters((*samplers_pixel)[i]);
++        const D3D12Shader::SamplerBinding& sampler_binding = (*samplers_pixel)[i];
++        D3D12TextureCache::SamplerParameters parameters = texture_cache_->GetSamplerParameters(
++            sampler_binding, texture_cache_->IsScaledPointCopyFetch(sampler_binding.fetch_constant,
++                                                                    sampler_binding.mag_filter));
+         if (current_samplers_pixel_[i] != parameters) {
+           current_samplers_pixel_[i] = parameters;
+           cbuffer_binding_descriptor_indices_pixel_.up_to_date = false;
 diff --git a/src/graphics/d3d12/pipeline_cache.cpp b/src/graphics/d3d12/pipeline_cache.cpp
 index 8e6b854..0b8f973 100644
 --- a/src/graphics/d3d12/pipeline_cache.cpp
@@ -4068,7 +4258,7 @@ index dd321a5..99868ec 100644
    const ui::d3d12::D3D12Provider& provider = command_processor_.GetD3D12Provider();
    ID3D12Device* device = provider.GetDevice();
 diff --git a/src/graphics/d3d12/texture_cache.cpp b/src/graphics/d3d12/texture_cache.cpp
-index 2be0e8e..1eddcdb 100644
+index 2be0e8e..9f067c2 100644
 --- a/src/graphics/d3d12/texture_cache.cpp
 +++ b/src/graphics/d3d12/texture_cache.cpp
 @@ -80,6 +80,137 @@ namespace shaders {
@@ -4265,7 +4455,27 @@ index 2be0e8e..1eddcdb 100644
    srv_descriptor_cache_allocated_ = 0;
  
    // Create a heap with null SRV descriptors, since it's faster to copy a
-@@ -1365,6 +1545,95 @@ void D3D12TextureCache::CreateCurrentScaledResolveRangeUintPow2UAV(
+@@ -926,7 +1106,7 @@ uint32_t D3D12TextureCache::GetActiveTextureBindlessSRVIndex(
+ }
+ 
+ D3D12TextureCache::SamplerParameters D3D12TextureCache::GetSamplerParameters(
+-    const D3D12Shader::SamplerBinding& binding) const {
++    const D3D12Shader::SamplerBinding& binding, bool point_to_linear) const {
+   const auto& regs = register_file();
+   xenos::xe_gpu_texture_fetch_t fetch = regs.GetTextureFetch(binding.fetch_constant);
+ 
+@@ -960,6 +1140,10 @@ D3D12TextureCache::SamplerParameters D3D12TextureCache::GetSamplerParameters(
+   xenos::TextureFilter mip_filter = binding.mip_filter == xenos::TextureFilter::kUseFetchConst
+                                         ? fetch.mip_filter
+                                         : binding.mip_filter;
++  if (point_to_linear && mag_filter == xenos::TextureFilter::kPoint) {
++    mag_filter = xenos::TextureFilter::kLinear;
++    min_filter = xenos::TextureFilter::kLinear;
++  }
+   bool min_mag_linear = (mag_filter == xenos::TextureFilter::kLinear) &&
+                         (min_filter == xenos::TextureFilter::kLinear);
+   bool mip_filter_bilinear_or_trilinear =
+@@ -1365,6 +1549,95 @@ void D3D12TextureCache::CreateCurrentScaledResolveRangeUintPow2UAV(
            element_size_bytes_pow2);
  }
  
@@ -4362,7 +4572,7 @@ index 2be0e8e..1eddcdb 100644
                                                        xenos::TextureFormat& format_out,
                                                        uint32_t* width_unscaled_out,
 diff --git a/src/graphics/flags.cpp b/src/graphics/flags.cpp
-index e2983a4..c6832ad 100644
+index e2983a4..7f93a9b 100644
 --- a/src/graphics/flags.cpp
 +++ b/src/graphics/flags.cpp
 @@ -9,6 +9,11 @@
@@ -4377,7 +4587,22 @@ index e2983a4..c6832ad 100644
  #include <rex/graphics/flags.h>
  #include <rex/logging.h>
  #include <rex/ui/renderdoc_api.h>
-@@ -32,6 +37,104 @@ REXCVAR_DEFINE_BOOL(gpu_debug_markers, false, "GPU",
+@@ -25,6 +30,14 @@ REXCVAR_DEFINE_BOOL(gamma_render_target_as_unorm16, true, "GPU",
+                     "Use R16G16B16A16_UNORM for gamma render targets (more accurate than sRGB)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_STRING(dump_shaders, "", "GPU", "Path to dump shaders to");
++REXCVAR_DEFINE_STRING(debug_vfetch_zero, "", "GPU",
++                      "Debug: stride:offset (dwords); vertex fetches of that attribute read 0");
++REXCVAR_DEFINE_BOOL(debug_draw_census, false, "GPU",
++                    "Debug: D3D12 logs each unique VS/PS/index count once, with its vertex layout");
++REXCVAR_DEFINE_STRING(debug_skip_draw_indices, "", "GPU",
++                      "Debug: comma list of index counts; D3D12 draws with those counts are skipped");
++REXCVAR_DEFINE_STRING(debug_skip_pixel_shader, "", "GPU",
++                      "Debug: ucode hash (hex); D3D12 draws with that pixel shader are skipped");
+ REXCVAR_DEFINE_BOOL(use_fuzzy_alpha_epsilon, false, "GPU",
+                     "Use approximate compare for alpha test values to prevent "
+                     "flickering on NVIDIA graphics cards");
+@@ -32,6 +45,104 @@ REXCVAR_DEFINE_BOOL(gpu_debug_markers, false, "GPU",
                      "Insert debug markers into GPU command streams for tools "
                      "like PIX and RenderDoc. Automatically enabled when "
                      "RenderDoc is detected.");
@@ -4482,6 +4707,61 @@ index e2983a4..c6832ad 100644
  
  bool IsGpuDebugMarkersEnabled() {
    static bool cached = false;
+diff --git a/src/graphics/null/graphics_system.cpp b/src/graphics/null/graphics_system.cpp
+new file mode 100644
+index 0000000..6e535f7
+--- /dev/null
++++ b/src/graphics/null/graphics_system.cpp
+@@ -0,0 +1,49 @@
++/**
++ * @file        graphics/null/graphics_system.cpp
++ * @brief       Null guest GPU: synchronization only, no rendering (see the header).
++ */
++
++#include <rex/graphics/null/graphics_system.h>
++
++#include <rex/logging.h>
++#include <rex/system/kernel_state.h>
++
++namespace rex::graphics::null_gpu {
++
++namespace {
++
++// Runs the shared packet processing (register writes, fences, events, interrupts, waits); every
++// operation that would need a host GPU is accepted and dropped.
++class NullCommandProcessor final : public CommandProcessor {
++ public:
++  using CommandProcessor::CommandProcessor;
++
++  void IssueSwap(uint32_t, uint32_t, uint32_t) override {}
++
++ protected:
++  bool SetupContext() override { return true; }
++  void ShutdownContext() override {}
++  Shader* LoadShader(xenos::ShaderType, uint32_t, const uint32_t*, uint32_t) override {
++    return nullptr;
++  }
++  bool IssueDraw(xenos::PrimitiveType, uint32_t, IndexBufferInfo*, bool) override { return true; }
++  bool IssueCopy() override { return true; }
++};
++
++}  // namespace
++
++X_STATUS NullGraphicsSystem::SetupPresentation(::rex::ui::WindowedAppContext* app_context) {
++  app_context_ = app_context;
++  REXGPU_INFO("Null GPU: guest command stream for synchronization only; the app renders");
++  return X_STATUS_SUCCESS;
++}
++
++void NullGraphicsSystem::CreateProvider(bool) {
++  // No host graphics provider.
++}
++
++std::unique_ptr<CommandProcessor> NullGraphicsSystem::CreateCommandProcessor() {
++  return std::make_unique<NullCommandProcessor>(this, kernel_state_);
++}
++
++}  // namespace rex::graphics::null_gpu
 diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
 index 953c5fd..81791d9 100644
 --- a/src/graphics/pipeline/render_target/cache.cpp
@@ -4684,10 +4964,24 @@ index 2c31a0e..1f2aa90 100644
    // (PsParamGen). The negate modified in DXBC flips the sign bit, so it can be
    // used to write the flags.
 diff --git a/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp b/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp
-index 31de175..d90128a 100644
+index 31de175..cb93e75 100644
 --- a/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp
 +++ b/src/graphics/pipeline/shader/dxbc_translator_fetch.cpp
-@@ -1963,6 +1963,59 @@ void DxbcShaderTranslator::ProcessTextureFetchInstruction(
+@@ -24,8 +24,11 @@
+ #include <rex/math.h>
+ #include <rex/string.h>
+ 
+-REXCVAR_DEFINE_BOOL(draw_resolution_scaled_texture_offsets, true, "GPU/Shader",
+-                    "Scale texture offsets with draw resolution");
++REXCVAR_DEFINE_BOOL(draw_resolution_scaled_texture_offsets, false, "GPU/Shader",
++                    "Scale texture offsets with draw resolution (fetch offsets in host texels on "
++                    "resolution-scaled textures, both backends). Off: offsets stay in guest texels, "
++                    "as on the console; on breaks shaders that gather 4x4 blocks with offsets (UFC 3 "
++                    "GPU DXT compressor: stair-stepped career opponent shorts/tattoos at 2x/3x)");
+ 
+ namespace rex::graphics {
+ using namespace ucode;
+@@ -1963,6 +1966,59 @@ void DxbcShaderTranslator::ProcessTextureFetchInstruction(
               dxbc::Src::R(system_temp_result_), dxbc::Src::R(exp_adjust_temp, dxbc::Src::kXXXX));
      // Release exp_adjust_temp.
      PopSystemTemp();
@@ -4891,10 +5185,10 @@ index 1774f97..8ce8c2a 100644
    if (param_gen_interpolator != UINT32_MAX) {
      Modification modification = GetSpirvShaderModification();
 diff --git a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
-index 9ce3bb4..669a9bc 100644
+index 9ce3bb4..0949737 100644
 --- a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
 +++ b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
-@@ -19,6 +19,7 @@
+@@ -19,9 +19,13 @@
  #include <fmt/format.h>
  
  #include <rex/assert.h>
@@ -4902,7 +5196,23 @@ index 9ce3bb4..669a9bc 100644
  #include <rex/graphics/pipeline/shader/spirv_translator.h>
  #include <rex/math.h>
  
-@@ -2044,6 +2045,71 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
++// Defined in dxbc_translator_fetch.cpp; shared by both backends.
++REXCVAR_DECLARE(bool, draw_resolution_scaled_texture_offsets);
++
+ namespace rex::graphics {
+ 
+ void SpirvShaderTranslator::ProcessVertexFetchInstruction(
+@@ -1067,7 +1071,8 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
+         spv::Id component_offset =
+             offset_values[i] ? builder_->makeFloatConstant(offset_values[i]) : spv::NoResult;
+         if (component_offset != spv::NoResult && texture_resolution_scaled != spv::NoResult &&
+-            (revert_resolution_scale_axes & (UINT32_C(1) << i))) {
++            (revert_resolution_scale_axes & (UINT32_C(1) << i)) &&
++            REXCVAR_GET(draw_resolution_scaled_texture_offsets)) {
+           spv::Id component_offset_resolution_scaled =
+               builder_->createNoContractionBinOp(spv::OpFMul, type_float_, component_offset,
+                                                  const_texture_resolution_scale_reciprocal[i]);
+@@ -2044,6 +2049,71 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
                  spv::OpFMul, type_float_, result[result_component_index], result_exponent_bias);
            }
          }
@@ -5049,27 +5359,54 @@ index 765c141..369f3f1 100644
          // Convert to gamma space - this is incorrect, since it must be done
          // after blending on the Xbox 360, but this is just one of many blending
          // issues in the host render target path.
+diff --git a/src/graphics/pipeline/shader/translator.cpp b/src/graphics/pipeline/shader/translator.cpp
+index e472251..adb6f6b 100644
+--- a/src/graphics/pipeline/shader/translator.cpp
++++ b/src/graphics/pipeline/shader/translator.cpp
+@@ -1005,6 +1005,13 @@ bool ParseVertexFetchInstruction(const VertexFetchInstruction& op,
+   instr.attributes.is_integer = !op.is_normalized();
+   instr.attributes.signed_rf_mode = op.signed_rf_mode();
+ 
++  const std::string& debug_zero = REXCVAR_GET(debug_vfetch_zero);
++  if (!debug_zero.empty() &&
++      debug_zero == std::to_string(instr.attributes.stride) + ":" + std::to_string(instr.attributes.offset)) {
++    for (int i = 0; i < 4; ++i) instr.result.components[i] = SwizzleSource::k0;
++    REXLOG_INFO("debug_vfetch_zero: fetch {} zeroed (r{})", debug_zero, instr.result.storage_index);
++  }
++
+   return !op.is_mini_fetch();
+ }
+ 
 diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
-index 76f5600..a5bd4ec 100644
+index 76f5600..ccdc72a 100644
 --- a/src/graphics/pipeline/texture/cache.cpp
 +++ b/src/graphics/pipeline/texture/cache.cpp
-@@ -12,6 +12,7 @@
+@@ -10,8 +10,15 @@
+  */
+ 
  #include <algorithm>
++#include <cmath>
  #include <cstdint>
++#include <cstdio>
++#include <cstdlib>
++#include <filesystem>
++#include <string>
++#include <unordered_map>
  #include <utility>
 +#include <vector>
  
  #include <rex/assert.h>
  #include <rex/chrono/clock.h>
-@@ -22,6 +23,7 @@
+@@ -22,6 +29,8 @@
  #include <rex/graphics/pipeline/texture/info.h>
  #include <rex/graphics/pipeline/texture/util.h>
  #include <rex/graphics/register_file.h>
++#include <rex/graphics/util/draw.h>
 +#include <rex/graphics/util/perf_summary.h>
  #include <rex/graphics/xenos.h>
  #include <rex/logging.h>
  #include <rex/math.h>
-@@ -80,6 +82,59 @@ REXCVAR_DEFINE_INT32(resolution_scale, 1, "GPU",
+@@ -80,6 +89,90 @@ REXCVAR_DEFINE_INT32(resolution_scale, 1, "GPU",
  REXCVAR_DEFINE_BOOL(pre_mask_resolve_l2_block, true, "GPU",
                      "Pre-mask scaled resolve L2 blocks to the write range before iterating");
  
@@ -5119,6 +5456,37 @@ index 76f5600..a5bd4ec 100644
 +                    "at 1x)")
 +    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 +
++REXCVAR_DEFINE_BOOL(scaled_point_to_linear, false, "GPU",
++                    "With resolution scaling, filter a point-magnified texture fetch linearly when "
++                    "the texture is not loaded scaled and its size equals the draw's scissor (a 1:1 "
++                    "copy into a composite, like a generated fighter's camo shorts or tattoo): "
++                    "point would draw every texel as a block of scale x scale pixels (false = keep "
++                    "point, as the game asks). Off: the career composites turned out not to be "
++                    "point copies (FINDINGS-career-logos.md)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++REXCVAR_DEFINE_BOOL(scaled_point_fetch_log, false, "GPU",
++                    "With resolution scaling, log texture fetches with a point mag filter once per "
++                    "texture and color render target (size, address, scissor, viewport, decision)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++REXCVAR_DEFINE_BOOL(scaled_composite_fetch_log, false, "GPU",
++                    "With resolution scaling, log every pixel shader texture fetch into an "
++                    "color render target of pitch 256 or more once per texture and render target "
++                    "(composites, and the draws that sample them): size, format, filters, loaded "
++                    "scaled or 1x, and how its "
++                    "pages got their scaled data (rendered, upscaled from 1x, or never resolved)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++REXCVAR_DEFINE_STRING(texture_dump_ranges, "", "GPU",
++                      "Comma-separated guest addresses (hex, ADDR or ADDR-END) of textures whose "
++                      "guest bytes (top level, as stored: tiled or linear, big-endian) are written "
++                      "to texture_dump_dir each time a texture based there is loaded with new "
++                      "contents (debugging: compare 1x and scaled runs)");
++
++REXCVAR_DEFINE_STRING(texture_dump_dir, "texdump", "GPU",
++                      "Folder for texture_dump_ranges dumps (relative to the working folder)");
++
 +REXCVAR_DEFINE_BOOL(scaled_resolve_downscale_box, true, "GPU",
 +                    "With resolution scaling, downscale 32bpp 8-bit-per-channel resolve data that "
 +                    "was rendered at the scale to 1x (CPU readback of pictures, 1x loads of mixed "
@@ -5129,7 +5497,97 @@ index 76f5600..a5bd4ec 100644
  // DEFINE_int32(
  //     draw_resolution_scale_x, 1,
  //     "Integer pixel width scale used for scaling the rendering resolution "
-@@ -219,6 +274,14 @@ TextureCache::TextureCache(const RegisterFile& register_file, SharedMemory& shar
+@@ -127,6 +220,89 @@ REXCVAR_DEFINE_BOOL(pre_mask_resolve_l2_block, true, "GPU",
+ 
+ namespace rex::graphics {
+ 
++namespace {
++
++// texture_dump_ranges: parsed ranges, and the hash of the last dump per base
++// address so a texture reloaded with the same bytes is not written again.
++struct TextureDumpState {
++  std::string ranges_string;
++  std::vector<std::pair<uint32_t, uint32_t>> ranges;
++  std::unordered_map<uint32_t, uint64_t> last_hash;
++  uint32_t count = 0;
++};
++
++TextureDumpState& GetTextureDumpState() {
++  static TextureDumpState state;
++  const std::string& ranges_string = REXCVAR_GET(texture_dump_ranges);
++  if (state.ranges_string != ranges_string) {
++    state.ranges_string = ranges_string;
++    state.ranges.clear();
++    size_t pos = 0;
++    while (pos < ranges_string.size()) {
++      size_t comma = ranges_string.find(',', pos);
++      std::string item = ranges_string.substr(
++          pos, comma == std::string::npos ? std::string::npos : comma - pos);
++      pos = comma == std::string::npos ? ranges_string.size() : comma + 1;
++      size_t dash = item.find('-');
++      uint32_t first = uint32_t(std::strtoul(item.c_str(), nullptr, 16)) & 0x1FFFFFFF;
++      uint32_t last =
++          dash == std::string::npos
++              ? first
++              : uint32_t(std::strtoul(item.c_str() + dash + 1, nullptr, 16)) & 0x1FFFFFFF;
++      if (first || last) {
++        state.ranges.emplace_back(first, std::max(first, last));
++      }
++    }
++  }
++  return state;
++}
++
++void DumpTextureGuestBytes(memory::Memory& memory, uint32_t base_address, uint32_t length,
++                           uint32_t width, uint32_t height, const char* format_name, bool tiled,
++                           bool scaled) {
++  TextureDumpState& state = GetTextureDumpState();
++  base_address &= 0x1FFFFFFF;
++  bool in_range = false;
++  for (const auto& range : state.ranges) {
++    if (base_address >= range.first && base_address <= range.second) {
++      in_range = true;
++      break;
++    }
++  }
++  if (!in_range || !length || state.count >= 1024 ||
++      uint64_t(base_address) + length > SharedMemory::kBufferSize) {
++    return;
++  }
++  const uint8_t* data = memory.TranslatePhysical(base_address);
++  uint64_t hash = UINT64_C(0xCBF29CE484222325);
++  for (uint32_t i = 0; i < length; ++i) {
++    hash = (hash ^ data[i]) * UINT64_C(0x100000001B3);
++  }
++  auto it = state.last_hash.find(base_address);
++  if (it != state.last_hash.end() && it->second == hash) {
++    return;
++  }
++  state.last_hash[base_address] = hash;
++  const std::string& dir = REXCVAR_GET(texture_dump_dir);
++  std::error_code ec;
++  std::filesystem::create_directories(dir, ec);
++  char name[160];
++  std::snprintf(name, sizeof(name), "%04u_%08X_%ux%u_%s_%s_%s.bin", state.count, base_address,
++                width, height, format_name, tiled ? "tiled" : "linear", scaled ? "scaled" : "1x");
++  std::filesystem::path path = std::filesystem::path(dir) / name;
++  FILE* file = std::fopen(path.string().c_str(), "wb");
++  if (!file) {
++    REXGPU_WARN("Texture dump: can't write {}", path.string());
++    return;
++  }
++  std::fwrite(data, 1, length, file);
++  std::fclose(file);
++  ++state.count;
++  REXGPU_INFO("Texture dump: {} ({} bytes, hash {:016X})", path.string(), length, hash);
++}
++
++}  // namespace
++
+ const TextureCache::LoadShaderInfo TextureCache::load_shader_info_[kLoadShaderCount] = {
+     // k8bpb
+     {3, 4, 1, 4},
+@@ -219,6 +395,14 @@ TextureCache::TextureCache(const RegisterFile& register_file, SharedMemory& shar
      constexpr uint32_t kScaledResolvePageDwordCount = SharedMemory::kBufferSize / 4096 / 32;
      scaled_resolve_pages_ = std::unique_ptr<uint32_t[]>(new uint32_t[kScaledResolvePageDwordCount]);
      std::memset(scaled_resolve_pages_.get(), 0, kScaledResolvePageDwordCount * sizeof(uint32_t));
@@ -5144,7 +5602,7 @@ index 76f5600..a5bd4ec 100644
      std::memset(scaled_resolve_pages_l2_, 0, sizeof(scaled_resolve_pages_l2_));
      scaled_resolve_global_watch_handle_ =
          shared_memory.RegisterGlobalWatch(ScaledResolveGlobalWatchCallbackThunk, this);
-@@ -296,6 +359,7 @@ void TextureCache::CompletedSubmissionUpdated(uint64_t completed_submission_inde
+@@ -296,6 +480,7 @@ void TextureCache::CompletedSubmissionUpdated(uint64_t completed_submission_inde
      assert_true(found_texture_it != textures_.end());
      if (found_texture_it != textures_.end()) {
        assert_true(found_texture_it->second.get() == texture);
@@ -5152,7 +5610,7 @@ index 76f5600..a5bd4ec 100644
        textures_.erase(found_texture_it);
        // `texture` is invalid now.
      }
-@@ -326,22 +390,8 @@ void TextureCache::MarkRangeAsResolved(uint32_t start_unscaled, uint32_t length_
+@@ -326,22 +511,8 @@ void TextureCache::MarkRangeAsResolved(uint32_t start_unscaled, uint32_t length_
    length_unscaled = std::min(length_unscaled, 0x20000000 - start_unscaled);
  
    if (IsDrawResolutionScaled()) {
@@ -5176,7 +5634,7 @@ index 76f5600..a5bd4ec 100644
    }
  
    // Invalidate textures. Toggling individual textures between scaled and
-@@ -349,6 +399,503 @@ void TextureCache::MarkRangeAsResolved(uint32_t start_unscaled, uint32_t length_
+@@ -349,6 +520,617 @@ void TextureCache::MarkRangeAsResolved(uint32_t start_unscaled, uint32_t length_
    shared_memory().RangeWrittenByGpu(start_unscaled, length_unscaled);
  }
  
@@ -5511,6 +5969,120 @@ index 76f5600..a5bd4ec 100644
 +  return true;
 +}
 +
++bool TextureCache::IsScaledPointCopyFetch(uint32_t fetch_constant_index,
++                                          xenos::TextureFilter binding_mag_filter) {
++  if (!IsDrawResolutionScaled()) {
++    return false;
++  }
++  bool to_linear = REXCVAR_GET(scaled_point_to_linear);
++  bool log = REXCVAR_GET(scaled_point_fetch_log);
++  bool composite_log = REXCVAR_GET(scaled_composite_fetch_log);
++  if (!to_linear && !log && !composite_log) {
++    return false;
++  }
++  const RegisterFile& regs = register_file();
++  xenos::xe_gpu_texture_fetch_t fetch = regs.GetTextureFetch(fetch_constant_index);
++  xenos::TextureFilter mag_filter = binding_mag_filter == xenos::TextureFilter::kUseFetchConst
++                                        ? fetch.mag_filter
++                                        : binding_mag_filter;
++  if (composite_log) {
++    LogCompositeFetch(fetch_constant_index, mag_filter);
++  }
++  if (mag_filter != xenos::TextureFilter::kPoint ||
++      fetch.dimension != xenos::DataDimension::k2DOrStacked ||
++      !GetValidTextureBinding(fetch_constant_index)) {
++    return false;
++  }
++  uint32_t width = fetch.size_2d.width + 1;
++  uint32_t height = fetch.size_2d.height + 1;
++  draw_util::Scissor scissor;
++  draw_util::GetScissor(regs, scissor);
++  bool scaled = IsActiveTextureResolutionScaled(fetch_constant_index);
++  bool copy = !scaled && width == scissor.extent[0] && height == scissor.extent[1];
++  if (log) {
++    auto surface_info = regs.Get<reg::RB_SURFACE_INFO>();
++    auto color_info = regs.Get<reg::RB_COLOR_INFO>(reg::RB_COLOR_INFO::rt_register_indices[0]);
++    uint32_t color_base = color_info.color_base | (color_info.color_base_bit_11 << 11);
++    uint64_t pair = uint64_t(fetch.base_address) | (uint64_t(width - 1) << 20) |
++                    (uint64_t(height - 1) << 33) | (uint64_t(color_base) << 46) |
++                    (uint64_t(surface_info.surface_pitch & 0x3F) << 58);
++    if (scaled_point_fetch_logged_.size() < 4096 && scaled_point_fetch_logged_.insert(pair).second) {
++      REXGPU_INFO(
++          "Scaled point fetch: texture {}x{} {} at {:08X} ({}), color RT pitch {} base tile {} "
++          "scissor {},{} {}x{}, viewport {}x{} -> {}",
++          width, height, FormatInfo::Get(fetch.format)->name, fetch.base_address << 12,
++          scaled ? "loaded scaled" : "1x", uint32_t(surface_info.surface_pitch), color_base,
++          scissor.offset[0], scissor.offset[1], scissor.extent[0], scissor.extent[1],
++          std::abs(regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_XSCALE)) * 2.0f,
++          std::abs(regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_YSCALE)) * 2.0f,
++          copy ? (to_linear ? "1:1 copy, linear" : "1:1 copy, point kept") : "point");
++    }
++  }
++  return to_linear && copy;
++}
++
++void TextureCache::LogCompositeFetch(uint32_t fetch_constant_index,
++                                     xenos::TextureFilter mag_filter) {
++  const RegisterFile& regs = register_file();
++  auto surface_info = regs.Get<reg::RB_SURFACE_INFO>();
++  uint32_t rt_pitch = surface_info.surface_pitch;
++  if (rt_pitch < 256) {
++    return;
++  }
++  const TextureBinding* binding = GetValidTextureBinding(fetch_constant_index);
++  if (!binding) {
++    return;
++  }
++  const TextureKey& key = binding->key;
++  auto color_info = regs.Get<reg::RB_COLOR_INFO>(reg::RB_COLOR_INFO::rt_register_indices[0]);
++  uint32_t color_base = color_info.color_base | (color_info.color_base_bit_11 << 11);
++  bool scaled = IsActiveTextureResolutionScaled(fetch_constant_index);
++  uint64_t pair = uint64_t(key.base_page) | (uint64_t(key.width_minus_1) << 17) |
++                  (uint64_t(key.format) << 30) | (uint64_t(color_base) << 36) |
++                  (uint64_t(rt_pitch >> 8) << 48) | (uint64_t(scaled) << 56);
++  if (scaled_composite_fetch_logged_.size() >= 32768 ||
++      !scaled_composite_fetch_logged_.insert(pair).second) {
++    return;
++  }
++  // Pages of the top stored level: rendered at the scale, upscaled from 1x
++  // (CPU data), or never resolved (plain guest memory).
++  texture_util::TextureGuestLayout guest_layout = key.GetGuestLayout();
++  uint32_t check_start = key.base_page ? key.base_page << 12 : key.mip_page << 12;
++  uint32_t check_length = key.base_page ? guest_layout.base.level_data_extent_bytes
++                                        : guest_layout.mips_total_extent_bytes;
++  uint32_t rendered = 0, upscaled = 0, unresolved = 0;
++  if (check_length) {
++    uint32_t page_first = (check_start & 0x1FFFFFFF) >> 12;
++    uint32_t page_last = std::min(((check_start & 0x1FFFFFFF) + check_length - 1) >> 12,
++                                  (SharedMemory::kBufferSize >> 12) - 1);
++    auto global_lock = global_critical_region_.Acquire();
++    for (uint32_t page = page_first; page <= page_last; ++page) {
++      uint32_t bit = UINT32_C(1) << (page & 31);
++      if (!(scaled_resolve_pages_[page >> 5] & bit)) {
++        ++unresolved;
++      } else if (scaled_resolve_upscaled_pages_[page >> 5] & bit) {
++        ++upscaled;
++      } else {
++        ++rendered;
++      }
++    }
++  }
++  xenos::xe_gpu_texture_fetch_t fetch = regs.GetTextureFetch(fetch_constant_index);
++  draw_util::Scissor scissor;
++  draw_util::GetScissor(regs, scissor);
++  REXGPU_INFO(
++      "Composite fetch: texture {}x{} {} at {:08X}{} ({}, {}), mag {} min {} mip {} aniso {}, "
++      "pages rendered {} upscaled {} unresolved {}, upscale filter {}, into color RT pitch {} "
++      "base tile {} format {} scissor {},{} {}x{}",
++      key.GetWidth(), key.GetHeight(), FormatInfo::Get(key.format)->name, check_start,
++      key.mip_max_level ? " +mips" : "", scaled ? "loaded scaled" : "1x",
++      key.tiled ? "tiled" : "linear", uint32_t(mag_filter), uint32_t(fetch.min_filter),
++      uint32_t(fetch.mip_filter), uint32_t(fetch.aniso_filter), rendered, upscaled, unresolved,
++      IsUpscaleFilterableFormat(key.format) ? "yes" : "no (blocky)", rt_pitch, color_base,
++      uint32_t(color_info.color_format), scissor.offset[0], scissor.offset[1], scissor.extent[0],
++      scissor.extent[1]);
++}
++
 +bool TextureCache::IsDownscaleBoxFormat(xenos::TextureFormat format) {
 +  // Every byte is one 8-bit channel, whatever the endianness.
 +  switch (format) {
@@ -5680,7 +6252,7 @@ index 76f5600..a5bd4ec 100644
  uint32_t TextureCache::GuestToHostSwizzle(uint32_t guest_swizzle, uint32_t host_format_swizzle) {
    uint32_t host_swizzle = 0;
    for (uint32_t i = 0; i < 4; ++i) {
-@@ -433,6 +980,73 @@ bool TextureCache::CommitPreparedTextureLoad(const PendingTextureLoad& pending_l
+@@ -433,6 +1215,73 @@ bool TextureCache::CommitPreparedTextureLoad(const PendingTextureLoad& pending_l
                                        texture_key.mip_page << 12, texture.GetGuestMipsSize(), 4)) {
        return false;
      }
@@ -5754,7 +6326,26 @@ index 76f5600..a5bd4ec 100644
    }
  
    if (!LoadTextureDataFromResidentMemoryImpl(texture, pending_load.load_base,
-@@ -758,20 +1372,106 @@ void TextureCache::WatchCallback(const std::unique_lock<std::recursive_mutex>& g
+@@ -588,6 +1437,18 @@ void TextureCache::RequestTextures(uint32_t used_texture_mask) {
+       }
+     }
+   }
++  if (!REXCVAR_GET(texture_dump_ranges).empty()) {
++    for (const PendingTextureLoad& pending_load : pending_texture_loads) {
++      if (pending_load.texture == nullptr || !pending_load.load_base) {
++        continue;
++      }
++      const TextureKey& key = pending_load.texture->key();
++      DumpTextureGuestBytes(shared_memory().memory(), key.base_page << 12,
++                            pending_load.texture->GetGuestBaseSize(), key.GetWidth(),
++                            key.GetHeight(), FormatInfo::Get(key.format)->name, key.tiled != 0,
++                            key.scaled_resolve != 0);
++    }
++  }
+   if (bindings_changed) {
+     UpdateTextureBindingsImpl(bindings_changed);
+   }
+@@ -758,20 +1619,106 @@ void TextureCache::WatchCallback(const std::unique_lock<std::recursive_mutex>& g
  void TextureCache::DestroyAllTextures(bool from_destructor) {
    ResetTextureBindings(from_destructor);
    textures_.clear();
@@ -5867,7 +6458,7 @@ index 76f5600..a5bd4ec 100644
      }
    }
  
-@@ -877,10 +1577,21 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
+@@ -877,10 +1824,21 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
    }
    COUNT_profile_set("gpu/texture_cache/textures", textures_.size());
    texture->LogAction("Created");
@@ -5889,7 +6480,7 @@ index 76f5600..a5bd4ec 100644
    PendingTextureLoad pending_load;
    PendingSharedMemoryRange pending_ranges[2];
    size_t pending_range_count = 0;
-@@ -1110,6 +1821,8 @@ void TextureCache::ScaledResolveGlobalWatchCallback(
+@@ -1110,6 +2068,8 @@ void TextureCache::ScaledResolveGlobalWatchCallback(
          resolve_keep_bits |= ~((UINT32_C(1) << ((resolve_page_last & 31) + 1)) - 1);
        }
        scaled_resolve_pages_[resolve_block_index] &= resolve_keep_bits;
@@ -5898,6 +6489,29 @@ index 76f5600..a5bd4ec 100644
        if (scaled_resolve_pages_[resolve_block_index] == 0) {
          scaled_resolve_pages_l2_[i] &= ~(UINT64_C(1) << resolve_block_relative_index);
        }
+diff --git a/src/graphics/plugin_main.cpp b/src/graphics/plugin_main.cpp
+index ec756d3..86ce585 100644
+--- a/src/graphics/plugin_main.cpp
++++ b/src/graphics/plugin_main.cpp
+@@ -14,6 +14,7 @@
+ #include <rex/logging.h>
+ #include <rex/system/gpu_plugin.h>
+ 
++#include <rex/graphics/null/graphics_system.h>
+ #if REX_HAS_D3D12
+ #include <rex/graphics/d3d12/graphics_system.h>
+ #endif
+@@ -38,6 +39,10 @@ extern "C" REX_GPU_PLUGIN_EXPORT rex::system::IGraphicsSystem* rex_gpu_create(
+   }
+ 
+   std::string_view backend = info->backend ? info->backend : "any";
++  // Synchronization-only guest GPU for apps with their own renderer (never picked by "any").
++  if (backend == "null") {
++    return new rex::graphics::null_gpu::NullGraphicsSystem();
++  }
+ #if REX_HAS_D3D12
+   if (backend == "any" || backend == "d3d12") {
+     return new rex::graphics::d3d12::D3D12GraphicsSystem();
 diff --git a/src/graphics/shaders/resolve_downscale_box.cs.glsl b/src/graphics/shaders/resolve_downscale_box.cs.glsl
 new file mode 100644
 index 0000000..dda3f72
@@ -8727,7 +9341,7 @@ index 0000000..d36fdb6
 +
 +}  // namespace rex::graphics::perf
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index 001f36b..3b8e24b 100644
+index 001f36b..3abc2ef 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
 @@ -29,6 +29,7 @@
@@ -8904,7 +9518,41 @@ index 001f36b..3b8e24b 100644
    reg::RB_DEPTHCONTROL normalized_depth_control = draw_util::GetNormalizedDepthControl(regs);
  
    uint32_t ps_param_gen_pos = UINT32_MAX;
-@@ -3979,6 +4075,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -3837,6 +3933,33 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       (pixel_shader != nullptr ? pixel_shader->GetUsedTextureMaskAfterTranslation() : 0);
+   texture_cache_->RequestTextures(used_texture_mask);
+ 
++  // Point fetches copying an unscaled texture 1:1 into a scaled render target
++  // filter linearly (scaled_point_to_linear); this needs the texture bindings,
++  // so it is done after RequestTextures. If the linear sampler can't be had
++  // (overflow), the point one stays.
++  if (pixel_shader && texture_cache_->IsDrawResolutionScaled()) {
++    const std::vector<VulkanShader::SamplerBinding>& pixel_sampler_bindings =
++        pixel_shader->GetSamplerBindingsAfterTranslation();
++    for (size_t j = 0;
++         j < pixel_sampler_bindings.size() && j < current_samplers_pixel_.size(); ++j) {
++      const VulkanShader::SamplerBinding& sampler_binding = pixel_sampler_bindings[j];
++      if (!texture_cache_->IsScaledPointCopyFetch(sampler_binding.fetch_constant,
++                                                  sampler_binding.mag_filter)) {
++        continue;
++      }
++      VulkanTextureCache::SamplerParameters linear_parameters =
++          texture_cache_->GetSamplerParameters(sampler_binding, true);
++      if (linear_parameters == current_samplers_pixel_[j].first) {
++        continue;
++      }
++      bool sampler_overflowed;
++      VkSampler linear_sampler = texture_cache_->UseSampler(linear_parameters, sampler_overflowed);
++      if (linear_sampler != VK_NULL_HANDLE) {
++        current_samplers_pixel_[j] = std::make_pair(linear_parameters, linear_sampler);
++      }
++    }
++  }
++
+   const VulkanPipelineCache::PipelineLayoutProvider* pipeline_layout_provider;
+   // Set up the render targets - this may perform dispatches and draws.
+   if (!render_target_cache_->Update(is_rasterization_done, normalized_depth_control,
+@@ -3979,6 +4102,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
  
    // Ensure vertex buffers are resident.
    const Shader::ConstantRegisterMap& constant_map_vertex = vertex_shader->constant_register_map();
@@ -8913,7 +9561,7 @@ index 001f36b..3b8e24b 100644
    for (uint32_t i = 0; i < rex::countof(constant_map_vertex.vertex_fetch_bitmap); ++i) {
      uint32_t vfetch_bits_remaining = constant_map_vertex.vertex_fetch_bitmap[i];
      uint32_t j;
-@@ -3987,6 +4085,15 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -3987,6 +4112,15 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
        uint32_t vfetch_index = i * 32 + j;
        uint64_t vfetch_bit = uint64_t(1) << (vfetch_index & 63);
        if (vertex_buffers_in_sync_[vfetch_index >> 6] & vfetch_bit) {
@@ -8929,7 +9577,7 @@ index 001f36b..3b8e24b 100644
          continue;
        }
        xenos::xe_gpu_vertex_fetch_t vfetch_constant = regs.GetVertexFetch(vfetch_index);
-@@ -4012,6 +4119,10 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -4012,6 +4146,10 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
        VertexBufferState& state = vertex_buffer_states_[vfetch_index];
        if (state.address == vfetch_constant.address && state.size == vfetch_constant.size) {
          vertex_buffers_in_sync_[vfetch_index >> 6] |= vfetch_bit;
@@ -8940,7 +9588,7 @@ index 001f36b..3b8e24b 100644
          continue;
        }
        if (!shared_memory_->RequestRange(vfetch_constant.address << 2, vfetch_constant.size << 2)) {
-@@ -4023,6 +4134,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -4023,6 +4161,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
        }
        state.address = vfetch_constant.address;
        state.size = vfetch_constant.size;
@@ -8949,7 +9597,7 @@ index 001f36b..3b8e24b 100644
        vertex_buffers_in_sync_[vfetch_index >> 6] |= vfetch_bit;
      }
    }
-@@ -4157,13 +4270,17 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -4157,13 +4297,17 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
    // Invalidate textures in memexported memory and watch for changes.
    if (!memexport_ranges_.empty()) {
      for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
@@ -8967,7 +9615,7 @@ index 001f36b..3b8e24b 100644
    }
  
    if (IsReadbackMemexportEnabled(REXCVAR_GET(vulkan_readback_memexport)) &&
-@@ -4173,11 +4290,13 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -4173,11 +4317,13 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
        memexport_total_size += memexport_range.size_bytes;
      }
      if (memexport_total_size) {
@@ -8981,7 +9629,7 @@ index 001f36b..3b8e24b 100644
      }
    }
  
-@@ -4208,8 +4327,11 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_
+@@ -4208,8 +4354,11 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_
    shared_memory_->Use(VulkanSharedMemory::Usage::kRead);
    SubmitBarriers(true);
  
@@ -8993,7 +9641,7 @@ index 001f36b..3b8e24b 100644
      VkBufferCopy readback_region = {};
      readback_region.srcOffset = memexport_range.base_address_dwords << 2;
      readback_region.dstOffset = readback_offset;
-@@ -4250,10 +4372,12 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_
+@@ -4250,10 +4399,12 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_
    }
  
    const uint8_t* readback_bytes = reinterpret_cast<const uint8_t*>(readback_mapping);
@@ -9008,7 +9656,7 @@ index 001f36b..3b8e24b 100644
    }
    dfn.vkUnmapMemory(device, readback_memory);
    dfn.vkDestroyBuffer(device, readback_buffer, nullptr);
-@@ -4333,8 +4457,11 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_
+@@ -4333,8 +4484,11 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_
    shared_memory_->Use(VulkanSharedMemory::Usage::kRead);
    SubmitBarriers(true);
  
@@ -9020,7 +9668,7 @@ index 001f36b..3b8e24b 100644
      VkBufferCopy readback_region = {};
      readback_region.srcOffset = memexport_range.base_address_dwords << 2;
      readback_region.dstOffset = readback_offset;
-@@ -4371,10 +4498,16 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_
+@@ -4371,10 +4525,16 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_
  
    const uint8_t* readback_bytes =
        reinterpret_cast<const uint8_t*>(readback.mapped_data[read_index]);
@@ -9039,7 +9687,7 @@ index 001f36b..3b8e24b 100644
    }
  
    readback.current_index = read_index;
-@@ -4385,21 +4518,699 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4385,21 +4545,699 @@ bool VulkanCommandProcessor::IssueCopy() {
  #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
    SCOPE_profile_cpu_f("gpu");
  #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
@@ -9742,7 +10390,7 @@ index 001f36b..3b8e24b 100644
  bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
    const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
    const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
-@@ -4515,7 +5326,11 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+@@ -4515,7 +5353,11 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
      }
  
      VkBuffer scaled_resolve_buffer = texture_cache_->scaled_resolve_buffer();
@@ -9755,7 +10403,7 @@ index 001f36b..3b8e24b 100644
        return true;
      }
  
-@@ -4561,8 +5376,8 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+@@ -4561,8 +5403,8 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
  
      VkDescriptorBufferInfo buffer_infos[2] = {};
      buffer_infos[0].buffer = scaled_resolve_buffer;
@@ -9766,7 +10414,7 @@ index 001f36b..3b8e24b 100644
      buffer_infos[1].buffer = resolve_downscale_buffer_;
      buffer_infos[1].offset = 0;
      buffer_infos[1].range = written_length;
-@@ -4601,7 +5416,7 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
+@@ -4601,7 +5443,7 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
      constants.scale_y = texture_cache_->draw_resolution_scale_y();
      constants.pixel_size_log2 = pixel_size_log2;
      constants.tile_count = tile_count;
@@ -9775,7 +10423,7 @@ index 001f36b..3b8e24b 100644
      constants.half_pixel_offset = (REXCVAR_GET(readback_resolve_half_pixel_offset) &&
                                     (constants.scale_x > 1 || constants.scale_y > 1))
                                        ? 1u
-@@ -5385,6 +6200,8 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+@@ -5385,6 +6227,8 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
        REXGPU_ERROR("Failed to begin a Vulkan command buffer");
        return false;
      }
@@ -9784,7 +10432,7 @@ index 001f36b..3b8e24b 100644
      deferred_command_buffer_.Execute(command_buffer.buffer);
      if (dfn.vkEndCommandBuffer(command_buffer.buffer) != VK_SUCCESS) {
        REXGPU_ERROR("Failed to end a Vulkan command buffer");
-@@ -6269,6 +7086,18 @@ void VulkanCommandProcessor::UpdateSystemConstantValues(
+@@ -6269,6 +7113,18 @@ void VulkanCommandProcessor::UpdateSystemConstantValues(
              std::memcmp(system_constants_.edram_rt_clamp[i], rt_clamp[i], 4 * sizeof(float)) != 0;
          std::memcpy(system_constants_.edram_rt_clamp[i], rt_clamp[i], 4 * sizeof(float));
        }
@@ -10194,7 +10842,7 @@ index 6788214..ef7c18e 100644
          assert_true(upload_buffer_previous != VK_NULL_HANDLE);
          command_buffer.CmdVkCopyBuffer(upload_buffer_previous, buffer_,
 diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
-index ecbd940..1a67ba7 100644
+index ecbd940..afb473a 100644
 --- a/src/graphics/vulkan/texture_cache.cpp
 +++ b/src/graphics/vulkan/texture_cache.cpp
 @@ -13,7 +13,9 @@
@@ -10360,7 +11008,32 @@ index ecbd940..1a67ba7 100644
  
    // Textures memory is allocated using the Vulkan Memory Allocator, destroy all
    // textures before destroying VMA.
-@@ -985,7 +1126,9 @@ VkImageView VulkanTextureCache::RequestSwapTexture(uint32_t& width_scaled_out,
+@@ -672,7 +813,7 @@ VkImageView VulkanTextureCache::GetActiveBindingOrNullImageView(uint32_t fetch_c
+ }
+ 
+ VulkanTextureCache::SamplerParameters VulkanTextureCache::GetSamplerParameters(
+-    const VulkanShader::SamplerBinding& binding) const {
++    const VulkanShader::SamplerBinding& binding, bool point_to_linear) const {
+   const auto& regs = register_file();
+   xenos::xe_gpu_texture_fetch_t fetch = regs.GetTextureFetch(binding.fetch_constant);
+ 
+@@ -694,10 +835,14 @@ VulkanTextureCache::SamplerParameters VulkanTextureCache::GetSamplerParameters(
+   xenos::TextureFilter mag_filter = binding.mag_filter == xenos::TextureFilter::kUseFetchConst
+                                         ? fetch.mag_filter
+                                         : binding.mag_filter;
+-  parameters.mag_linear = mag_filter == xenos::TextureFilter::kLinear;
+   xenos::TextureFilter min_filter = binding.min_filter == xenos::TextureFilter::kUseFetchConst
+                                         ? fetch.min_filter
+                                         : binding.min_filter;
++  if (point_to_linear && mag_filter == xenos::TextureFilter::kPoint) {
++    mag_filter = xenos::TextureFilter::kLinear;
++    min_filter = xenos::TextureFilter::kLinear;
++  }
++  parameters.mag_linear = mag_filter == xenos::TextureFilter::kLinear;
+   parameters.min_linear = min_filter == xenos::TextureFilter::kLinear;
+   xenos::TextureFilter mip_filter = binding.mip_filter == xenos::TextureFilter::kUseFetchConst
+                                         ? fetch.mip_filter
+@@ -985,7 +1130,9 @@ VkImageView VulkanTextureCache::RequestSwapTexture(uint32_t& width_scaled_out,
                                                     xenos::TextureFormat& format_out,
                                                     uint32_t* width_unscaled_out,
                                                     uint32_t* height_unscaled_out,
@@ -10371,7 +11044,7 @@ index ecbd940..1a67ba7 100644
    const auto& regs = register_file();
    xenos::xe_gpu_texture_fetch_t fetch = regs.GetTextureFetch(0);
    TextureKey key;
-@@ -1040,6 +1183,13 @@ VkImageView VulkanTextureCache::RequestSwapTexture(uint32_t& width_scaled_out,
+@@ -1040,6 +1187,13 @@ VkImageView VulkanTextureCache::RequestSwapTexture(uint32_t& width_scaled_out,
    width_scaled_out = key.GetWidth() * (key.scaled_resolve ? draw_resolution_scale_x() : 1);
    height_scaled_out = key.GetHeight() * (key.scaled_resolve ? draw_resolution_scale_y() : 1);
    format_out = key.format;
@@ -10385,7 +11058,7 @@ index ecbd940..1a67ba7 100644
    return texture_view;
  }
  
-@@ -1213,6 +1363,121 @@ bool VulkanTextureCache::EnsureScaledResolveMemoryCommitted(uint32_t start_unsca
+@@ -1213,6 +1367,121 @@ bool VulkanTextureCache::EnsureScaledResolveMemoryCommitted(uint32_t start_unsca
    return EnsureScaledResolveBufferAllocated(start_scaled, length_scaled);
  }
  
@@ -10507,7 +11180,7 @@ index ecbd940..1a67ba7 100644
  bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture, bool load_base,
                                                                 bool load_mips) {
    VulkanTexture& vulkan_texture = static_cast<VulkanTexture&>(texture);
-@@ -2955,6 +3220,46 @@ bool VulkanTextureCache::Initialize() {
+@@ -2955,6 +3224,46 @@ bool VulkanTextureCache::Initialize() {
      }
    }
  
@@ -12521,7 +13194,7 @@ index 4ede107..25b93c3 100644
    ImGui::SetNextItemWidth(-1.0f);
    ImGui::InputText("##search", search_buf_, sizeof(search_buf_));
 diff --git a/src/ui/rex_app.cpp b/src/ui/rex_app.cpp
-index 9ff54e8..24eabf9 100644
+index 9ff54e8..5400d6b 100644
 --- a/src/ui/rex_app.cpp
 +++ b/src/ui/rex_app.cpp
 @@ -107,33 +107,48 @@ bool ReXApp::OnInitialize() {
@@ -12674,7 +13347,20 @@ index 9ff54e8..24eabf9 100644
              if (window_) {
                apply(value);
              }
-@@ -436,12 +476,37 @@ void ReXApp::SetupOverlays(rex::ui::Presenter* presenter, rex::ui::ImmediateDraw
+@@ -397,9 +437,10 @@ bool ReXApp::SetupPresentation() {
+       }
+     }
+     window_->SetPresenter(presenter);
+-  } else if (!graphics_system) {
++  } else {
+     // Detached mode: the app brings its own renderer and drives its own paint
+-    // loop. ReXApp owns the returned drawer via immediate_drawer_.
++    // loop (no graphics system, or a presenter-less one such as the null GPU).
++    // ReXApp owns the returned drawer via immediate_drawer_.
+     immediate_drawer_ = OnCreateImmediateDrawer();
+     if (immediate_drawer_) {
+       SetupOverlays(/*presenter=*/nullptr, immediate_drawer_.get());
+@@ -436,12 +477,37 @@ void ReXApp::SetupOverlays(rex::ui::Presenter* presenter, rex::ui::ImmediateDraw
        console_overlay_ = std::make_unique<ui::ConsoleDialog>(imgui_drawer_.get(), log_sink_);
      }
    });
@@ -12714,7 +13400,7 @@ index 9ff54e8..24eabf9 100644
    });
    rex::ui::RegisterBind("bind_achievements", "F7", "Toggle achievements overlay", [this] {
      if (achievements_overlay_) {
-@@ -588,6 +653,7 @@ void ReXApp::OnDestroy() {
+@@ -588,6 +654,7 @@ void ReXApp::OnDestroy() {
    rex::ui::UnregisterBind("bind_debug_overlay");
    rex::ui::UnregisterBind("bind_console");
    rex::ui::UnregisterBind("bind_settings");

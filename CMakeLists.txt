@@ -13,6 +13,7 @@ include(generated/rexglue.cmake)
 # Sources
 set(UFC3_SOURCES
     src/main.cpp
+    src/gpu_preference.cpp
 )
 
 if(WIN32)
@@ -22,3 +23,11 @@ else()
 endif()
 
 rexglue_setup_target(ufc3 GPU_PLUGINS xenos)
+
+# Native renderer (cmake/native_renderer.cmake): compiled in, picked at run time with
+# ufc3_renderer=native; the default stays emulated. build.bat native / nonative sets it.
+option(UFC3_NATIVE_RENDERER "Compile in the native (plume D3D12) renderer" OFF)
+if(UFC3_NATIVE_RENDERER)
+    include(cmake/native_renderer.cmake)
+    ufc3_add_native_renderer(ufc3)
+endif()

@@ -35,6 +35,8 @@
 #include <rex/logging.h>
 #include <rex/ppc/func.h>
 
+#include "blood.h"
+
 REXCVAR_DEFINE_BOOL(ufc3_trace_acce, false, "ufc3",
                     "Log walkout-gear (acce.mpc) folder reads, model/Havok entry loads and inflate results "
                     "(fight-load crash 4, FINDINGS-shirt-crash.md)");
@@ -188,6 +190,7 @@ extern "C" REX_FUNC(sub_827A4C50) {
 
 extern "C" REX_FUNC(sub_827A49E0) {
   namespace at = ufc3_acce_trace;
+  ufc3_blood::ZoneHands(base, ctx.r3.u32);
   if (at::t_in_acce_model && static_cast<uint32_t>(ctx.lr) == at::kLrModelParse && REXCVAR_GET(ufc3_trace_acce) &&
       at::Budget()) {
     const uint32_t buf = ctx.r3.u32;

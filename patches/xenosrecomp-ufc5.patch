@@ -1,0 +1,63 @@
+diff --git a/XenosRecomp/shader_recompiler.cpp b/XenosRecomp/shader_recompiler.cpp
+--- a/XenosRecomp/shader_recompiler.cpp
++++ b/XenosRecomp/shader_recompiler.cpp
+@@ -1011,6 +1011,21 @@
+     uint32_t vectorWriteMask = instr.vectorWriteMask;
+     if (instr.exportData)
+         vectorWriteMask &= ~instr.scalarWriteMask;
++
++    // UFC 3: both halves of an ALU instruction read the registers as they were before it. The scalar
++    // half is printed after the vector half, so a scalar reading the vector's destination would see
++    // the new value: hold the vector result back until ps is computed.
++    // ufc3_blood_light_fix relies on this (mul_sat r3.xyz + muls r0.x, r3.xy), as do some stock shaders.
++    const bool scalarConstOp = instr.scalarOpcode == AluScalarOpcode::Mulsc0 || instr.scalarOpcode == AluScalarOpcode::Mulsc1 ||
++        instr.scalarOpcode == AluScalarOpcode::Addsc0 || instr.scalarOpcode == AluScalarOpcode::Addsc1 ||
++        instr.scalarOpcode == AluScalarOpcode::Subsc0 || instr.scalarOpcode == AluScalarOpcode::Subsc1;
++    const uint32_t scalarTemp = scalarConstOp
++        ? ((uint32_t(instr.scalarOpcode) & 1) | (instr.src3Select << 1) | (instr.src3Swizzle & 0x3C))
++        : (instr.src3Register & 0x3F);
++    const bool deferVectorWrite = vectorWriteMask != 0 && exportRegister.empty() &&
++        instr.scalarOpcode != AluScalarOpcode::RetainPrev && (scalarConstOp || instr.src3Select) &&
++        scalarTemp == instr.vectorDest;
++    bool vectorWriteDeferred = false;
+ 
+ #ifdef REBLUE_RECOMP
+     // A Sgt/Sge whose sources are ShadowTexture taps re-emits per lane as a
+@@ -1057,6 +1072,11 @@
+             out += exportRegister;
+             out += '.';
+         }
++        else if (deferVectorWrite)
++        {
++            out += "coIssue.";
++            vectorWriteDeferred = true;
++        }
+         else
+         {
+             print("r{}.", instr.vectorDest);
+@@ -1438,6 +1458,18 @@
+         }
+     }
+ 
++    if (vectorWriteDeferred)
++    {
++        std::string mask;
++        for (size_t i = 0; i < 4; i++)
++        {
++            if ((vectorWriteMask >> i) & 0x1)
++                mask += SWIZZLES[i];
++        }
++        indent();
++        println("r{}.{} = coIssue.{};", instr.vectorDest, mask, mask);
++    }
++
+     uint32_t scalarWriteMask = instr.scalarWriteMask;
+     if (instr.exportData)
+         scalarWriteMask &= ~instr.vectorWriteMask;
+@@ -2054,5 +2086,6 @@
+     out += "\tint aL = 0;\n";
+     out += "\tbool p0 = false;\n";
+     out += "\tfloat ps = 0.0;\n";
++    out += "\tfloat4 coIssue = 0.0;\n";
+     if (isPixelShader)
+     {

@@ -11,7 +11,7 @@
 REXCVAR_DECLARE(bool, ufc3_cs60_trace);
 
 namespace ufc3_cs60_trace {
-constexpr int kCount = 773;
+constexpr int kCount = 772;
 inline std::atomic<uint32_t> g_calls[kCount];
 inline const uint32_t kAddr[kCount] = {
     0x822376C8,
@@ -450,7 +450,6 @@ inline const uint32_t kAddr[kCount] = {
     0x82C6DDF0,
     0x82C70A40,
     0x82C71E88,
-    0x82C722C0,
     0x82C7B9C8,
     0x82C7C898,
     0x82C7CA68,
@@ -1662,677 +1661,675 @@ REX_EXTERN(__imp__sub_82C70A40);
 extern "C" REX_FUNC(sub_82C70A40) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[434].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C70A40(ctx, base); }
 REX_EXTERN(__imp__sub_82C71E88);
 extern "C" REX_FUNC(sub_82C71E88) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[435].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C71E88(ctx, base); }
-REX_EXTERN(__imp__sub_82C722C0);
-extern "C" REX_FUNC(sub_82C722C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[436].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C722C0(ctx, base); }
 REX_EXTERN(__imp__sub_82C7B9C8);
-extern "C" REX_FUNC(sub_82C7B9C8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[437].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C7B9C8(ctx, base); }
+extern "C" REX_FUNC(sub_82C7B9C8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[436].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C7B9C8(ctx, base); }
 REX_EXTERN(__imp__sub_82C7C898);
-extern "C" REX_FUNC(sub_82C7C898) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[438].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C7C898(ctx, base); }
+extern "C" REX_FUNC(sub_82C7C898) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[437].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C7C898(ctx, base); }
 REX_EXTERN(__imp__sub_82C7CA68);
-extern "C" REX_FUNC(sub_82C7CA68) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[439].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C7CA68(ctx, base); }
+extern "C" REX_FUNC(sub_82C7CA68) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[438].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C7CA68(ctx, base); }
 REX_EXTERN(__imp__sub_82C80360);
-extern "C" REX_FUNC(sub_82C80360) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[440].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C80360(ctx, base); }
+extern "C" REX_FUNC(sub_82C80360) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[439].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C80360(ctx, base); }
 REX_EXTERN(__imp__sub_82C804D8);
-extern "C" REX_FUNC(sub_82C804D8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[441].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C804D8(ctx, base); }
+extern "C" REX_FUNC(sub_82C804D8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[440].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C804D8(ctx, base); }
 REX_EXTERN(__imp__sub_82C97D50);
-extern "C" REX_FUNC(sub_82C97D50) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[442].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C97D50(ctx, base); }
+extern "C" REX_FUNC(sub_82C97D50) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[441].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C97D50(ctx, base); }
 REX_EXTERN(__imp__sub_82C97F50);
-extern "C" REX_FUNC(sub_82C97F50) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[443].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C97F50(ctx, base); }
+extern "C" REX_FUNC(sub_82C97F50) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[442].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C97F50(ctx, base); }
 REX_EXTERN(__imp__sub_82C98E58);
-extern "C" REX_FUNC(sub_82C98E58) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[444].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C98E58(ctx, base); }
+extern "C" REX_FUNC(sub_82C98E58) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[443].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C98E58(ctx, base); }
 REX_EXTERN(__imp__sub_82C99560);
-extern "C" REX_FUNC(sub_82C99560) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[445].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C99560(ctx, base); }
+extern "C" REX_FUNC(sub_82C99560) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[444].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C99560(ctx, base); }
 REX_EXTERN(__imp__sub_82C9A560);
-extern "C" REX_FUNC(sub_82C9A560) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[446].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C9A560(ctx, base); }
+extern "C" REX_FUNC(sub_82C9A560) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[445].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C9A560(ctx, base); }
 REX_EXTERN(__imp__sub_82C9BCF0);
-extern "C" REX_FUNC(sub_82C9BCF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[447].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C9BCF0(ctx, base); }
+extern "C" REX_FUNC(sub_82C9BCF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[446].fetch_add(1, std::memory_order_relaxed); __imp__sub_82C9BCF0(ctx, base); }
 REX_EXTERN(__imp__sub_82CADF80);
-extern "C" REX_FUNC(sub_82CADF80) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[448].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CADF80(ctx, base); }
+extern "C" REX_FUNC(sub_82CADF80) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[447].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CADF80(ctx, base); }
 REX_EXTERN(__imp__sub_82CB6C88);
-extern "C" REX_FUNC(sub_82CB6C88) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[449].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CB6C88(ctx, base); }
+extern "C" REX_FUNC(sub_82CB6C88) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[448].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CB6C88(ctx, base); }
 REX_EXTERN(__imp__sub_82CB7790);
-extern "C" REX_FUNC(sub_82CB7790) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[450].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CB7790(ctx, base); }
+extern "C" REX_FUNC(sub_82CB7790) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[449].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CB7790(ctx, base); }
 REX_EXTERN(__imp__sub_82CB8478);
-extern "C" REX_FUNC(sub_82CB8478) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[451].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CB8478(ctx, base); }
+extern "C" REX_FUNC(sub_82CB8478) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[450].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CB8478(ctx, base); }
 REX_EXTERN(__imp__sub_82CB92B0);
-extern "C" REX_FUNC(sub_82CB92B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[452].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CB92B0(ctx, base); }
+extern "C" REX_FUNC(sub_82CB92B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[451].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CB92B0(ctx, base); }
 REX_EXTERN(__imp__sub_82CBCEF8);
-extern "C" REX_FUNC(sub_82CBCEF8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[453].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CBCEF8(ctx, base); }
+extern "C" REX_FUNC(sub_82CBCEF8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[452].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CBCEF8(ctx, base); }
 REX_EXTERN(__imp__sub_82CBE080);
-extern "C" REX_FUNC(sub_82CBE080) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[454].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CBE080(ctx, base); }
+extern "C" REX_FUNC(sub_82CBE080) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[453].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CBE080(ctx, base); }
 REX_EXTERN(__imp__sub_82CBF820);
-extern "C" REX_FUNC(sub_82CBF820) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[455].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CBF820(ctx, base); }
+extern "C" REX_FUNC(sub_82CBF820) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[454].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CBF820(ctx, base); }
 REX_EXTERN(__imp__sub_82CBFC78);
-extern "C" REX_FUNC(sub_82CBFC78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[456].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CBFC78(ctx, base); }
+extern "C" REX_FUNC(sub_82CBFC78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[455].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CBFC78(ctx, base); }
 REX_EXTERN(__imp__sub_82CBFE58);
-extern "C" REX_FUNC(sub_82CBFE58) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[457].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CBFE58(ctx, base); }
+extern "C" REX_FUNC(sub_82CBFE58) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[456].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CBFE58(ctx, base); }
 REX_EXTERN(__imp__sub_82CC0068);
-extern "C" REX_FUNC(sub_82CC0068) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[458].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CC0068(ctx, base); }
+extern "C" REX_FUNC(sub_82CC0068) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[457].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CC0068(ctx, base); }
 REX_EXTERN(__imp__sub_82CC0470);
-extern "C" REX_FUNC(sub_82CC0470) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[459].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CC0470(ctx, base); }
+extern "C" REX_FUNC(sub_82CC0470) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[458].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CC0470(ctx, base); }
 REX_EXTERN(__imp__sub_82CCEA08);
-extern "C" REX_FUNC(sub_82CCEA08) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[460].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CCEA08(ctx, base); }
+extern "C" REX_FUNC(sub_82CCEA08) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[459].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CCEA08(ctx, base); }
 REX_EXTERN(__imp__sub_82CCEA90);
-extern "C" REX_FUNC(sub_82CCEA90) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[461].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CCEA90(ctx, base); }
+extern "C" REX_FUNC(sub_82CCEA90) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[460].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CCEA90(ctx, base); }
 REX_EXTERN(__imp__sub_82CCEAD0);
-extern "C" REX_FUNC(sub_82CCEAD0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[462].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CCEAD0(ctx, base); }
+extern "C" REX_FUNC(sub_82CCEAD0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[461].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CCEAD0(ctx, base); }
 REX_EXTERN(__imp__sub_82CCFF90);
-extern "C" REX_FUNC(sub_82CCFF90) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[463].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CCFF90(ctx, base); }
+extern "C" REX_FUNC(sub_82CCFF90) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[462].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CCFF90(ctx, base); }
 REX_EXTERN(__imp__sub_82CD0018);
-extern "C" REX_FUNC(sub_82CD0018) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[464].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD0018(ctx, base); }
+extern "C" REX_FUNC(sub_82CD0018) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[463].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD0018(ctx, base); }
 REX_EXTERN(__imp__sub_82CD1D90);
-extern "C" REX_FUNC(sub_82CD1D90) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[465].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD1D90(ctx, base); }
+extern "C" REX_FUNC(sub_82CD1D90) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[464].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD1D90(ctx, base); }
 REX_EXTERN(__imp__sub_82CD1FF0);
-extern "C" REX_FUNC(sub_82CD1FF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[466].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD1FF0(ctx, base); }
+extern "C" REX_FUNC(sub_82CD1FF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[465].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD1FF0(ctx, base); }
 REX_EXTERN(__imp__sub_82CD2DC8);
-extern "C" REX_FUNC(sub_82CD2DC8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[467].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD2DC8(ctx, base); }
+extern "C" REX_FUNC(sub_82CD2DC8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[466].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD2DC8(ctx, base); }
 REX_EXTERN(__imp__sub_82CD2FE8);
-extern "C" REX_FUNC(sub_82CD2FE8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[468].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD2FE8(ctx, base); }
+extern "C" REX_FUNC(sub_82CD2FE8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[467].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD2FE8(ctx, base); }
 REX_EXTERN(__imp__sub_82CD3148);
-extern "C" REX_FUNC(sub_82CD3148) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[469].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD3148(ctx, base); }
+extern "C" REX_FUNC(sub_82CD3148) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[468].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD3148(ctx, base); }
 REX_EXTERN(__imp__sub_82CD40A8);
-extern "C" REX_FUNC(sub_82CD40A8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[470].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD40A8(ctx, base); }
+extern "C" REX_FUNC(sub_82CD40A8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[469].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD40A8(ctx, base); }
 REX_EXTERN(__imp__sub_82CD47F0);
-extern "C" REX_FUNC(sub_82CD47F0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[471].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD47F0(ctx, base); }
+extern "C" REX_FUNC(sub_82CD47F0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[470].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD47F0(ctx, base); }
 REX_EXTERN(__imp__sub_82CD4B10);
-extern "C" REX_FUNC(sub_82CD4B10) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[472].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD4B10(ctx, base); }
+extern "C" REX_FUNC(sub_82CD4B10) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[471].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD4B10(ctx, base); }
 REX_EXTERN(__imp__sub_82CD5B30);
-extern "C" REX_FUNC(sub_82CD5B30) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[473].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD5B30(ctx, base); }
+extern "C" REX_FUNC(sub_82CD5B30) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[472].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD5B30(ctx, base); }
 REX_EXTERN(__imp__sub_82CD6790);
-extern "C" REX_FUNC(sub_82CD6790) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[474].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD6790(ctx, base); }
+extern "C" REX_FUNC(sub_82CD6790) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[473].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD6790(ctx, base); }
 REX_EXTERN(__imp__sub_82CD7500);
-extern "C" REX_FUNC(sub_82CD7500) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[475].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD7500(ctx, base); }
+extern "C" REX_FUNC(sub_82CD7500) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[474].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CD7500(ctx, base); }
 REX_EXTERN(__imp__sub_82CE08D0);
-extern "C" REX_FUNC(sub_82CE08D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[476].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CE08D0(ctx, base); }
+extern "C" REX_FUNC(sub_82CE08D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[475].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CE08D0(ctx, base); }
 REX_EXTERN(__imp__sub_82CE6D08);
-extern "C" REX_FUNC(sub_82CE6D08) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[477].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CE6D08(ctx, base); }
+extern "C" REX_FUNC(sub_82CE6D08) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[476].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CE6D08(ctx, base); }
 REX_EXTERN(__imp__sub_82CE6FA8);
-extern "C" REX_FUNC(sub_82CE6FA8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[478].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CE6FA8(ctx, base); }
+extern "C" REX_FUNC(sub_82CE6FA8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[477].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CE6FA8(ctx, base); }
 REX_EXTERN(__imp__sub_82CE7DB8);
-extern "C" REX_FUNC(sub_82CE7DB8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[479].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CE7DB8(ctx, base); }
+extern "C" REX_FUNC(sub_82CE7DB8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[478].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CE7DB8(ctx, base); }
 REX_EXTERN(__imp__sub_82CECC70);
-extern "C" REX_FUNC(sub_82CECC70) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[480].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CECC70(ctx, base); }
+extern "C" REX_FUNC(sub_82CECC70) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[479].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CECC70(ctx, base); }
 REX_EXTERN(__imp__sub_82CED0A0);
-extern "C" REX_FUNC(sub_82CED0A0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[481].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CED0A0(ctx, base); }
+extern "C" REX_FUNC(sub_82CED0A0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[480].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CED0A0(ctx, base); }
 REX_EXTERN(__imp__sub_82CED5E0);
-extern "C" REX_FUNC(sub_82CED5E0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[482].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CED5E0(ctx, base); }
+extern "C" REX_FUNC(sub_82CED5E0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[481].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CED5E0(ctx, base); }
 REX_EXTERN(__imp__sub_82CEDEA0);
-extern "C" REX_FUNC(sub_82CEDEA0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[483].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CEDEA0(ctx, base); }
+extern "C" REX_FUNC(sub_82CEDEA0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[482].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CEDEA0(ctx, base); }
 REX_EXTERN(__imp__sub_82CEE268);
-extern "C" REX_FUNC(sub_82CEE268) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[484].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CEE268(ctx, base); }
+extern "C" REX_FUNC(sub_82CEE268) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[483].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CEE268(ctx, base); }
 REX_EXTERN(__imp__sub_82CF2928);
-extern "C" REX_FUNC(sub_82CF2928) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[485].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CF2928(ctx, base); }
+extern "C" REX_FUNC(sub_82CF2928) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[484].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CF2928(ctx, base); }
 REX_EXTERN(__imp__sub_82CF2CF0);
-extern "C" REX_FUNC(sub_82CF2CF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[486].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CF2CF0(ctx, base); }
+extern "C" REX_FUNC(sub_82CF2CF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[485].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CF2CF0(ctx, base); }
 REX_EXTERN(__imp__sub_82CF4810);
-extern "C" REX_FUNC(sub_82CF4810) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[487].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CF4810(ctx, base); }
+extern "C" REX_FUNC(sub_82CF4810) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[486].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CF4810(ctx, base); }
 REX_EXTERN(__imp__sub_82CF5D50);
-extern "C" REX_FUNC(sub_82CF5D50) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[488].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CF5D50(ctx, base); }
+extern "C" REX_FUNC(sub_82CF5D50) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[487].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CF5D50(ctx, base); }
 REX_EXTERN(__imp__sub_82CF5EC0);
-extern "C" REX_FUNC(sub_82CF5EC0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[489].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CF5EC0(ctx, base); }
+extern "C" REX_FUNC(sub_82CF5EC0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[488].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CF5EC0(ctx, base); }
 REX_EXTERN(__imp__sub_82CF7EF0);
-extern "C" REX_FUNC(sub_82CF7EF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[490].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CF7EF0(ctx, base); }
+extern "C" REX_FUNC(sub_82CF7EF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[489].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CF7EF0(ctx, base); }
 REX_EXTERN(__imp__sub_82CF8540);
-extern "C" REX_FUNC(sub_82CF8540) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[491].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CF8540(ctx, base); }
+extern "C" REX_FUNC(sub_82CF8540) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[490].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CF8540(ctx, base); }
 REX_EXTERN(__imp__sub_82CFBF28);
-extern "C" REX_FUNC(sub_82CFBF28) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[492].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CFBF28(ctx, base); }
+extern "C" REX_FUNC(sub_82CFBF28) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[491].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CFBF28(ctx, base); }
 REX_EXTERN(__imp__sub_82CFC5C0);
-extern "C" REX_FUNC(sub_82CFC5C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[493].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CFC5C0(ctx, base); }
+extern "C" REX_FUNC(sub_82CFC5C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[492].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CFC5C0(ctx, base); }
 REX_EXTERN(__imp__sub_82CFCF70);
-extern "C" REX_FUNC(sub_82CFCF70) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[494].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CFCF70(ctx, base); }
+extern "C" REX_FUNC(sub_82CFCF70) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[493].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CFCF70(ctx, base); }
 REX_EXTERN(__imp__sub_82CFE190);
-extern "C" REX_FUNC(sub_82CFE190) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[495].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CFE190(ctx, base); }
+extern "C" REX_FUNC(sub_82CFE190) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[494].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CFE190(ctx, base); }
 REX_EXTERN(__imp__sub_82CFE920);
-extern "C" REX_FUNC(sub_82CFE920) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[496].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CFE920(ctx, base); }
+extern "C" REX_FUNC(sub_82CFE920) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[495].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CFE920(ctx, base); }
 REX_EXTERN(__imp__sub_82CFFD58);
-extern "C" REX_FUNC(sub_82CFFD58) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[497].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CFFD58(ctx, base); }
+extern "C" REX_FUNC(sub_82CFFD58) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[496].fetch_add(1, std::memory_order_relaxed); __imp__sub_82CFFD58(ctx, base); }
 REX_EXTERN(__imp__sub_82D04890);
-extern "C" REX_FUNC(sub_82D04890) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[498].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D04890(ctx, base); }
+extern "C" REX_FUNC(sub_82D04890) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[497].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D04890(ctx, base); }
 REX_EXTERN(__imp__sub_82D08B78);
-extern "C" REX_FUNC(sub_82D08B78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[499].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D08B78(ctx, base); }
+extern "C" REX_FUNC(sub_82D08B78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[498].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D08B78(ctx, base); }
 REX_EXTERN(__imp__sub_82D10C00);
-extern "C" REX_FUNC(sub_82D10C00) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[500].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D10C00(ctx, base); }
+extern "C" REX_FUNC(sub_82D10C00) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[499].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D10C00(ctx, base); }
 REX_EXTERN(__imp__sub_82D11198);
-extern "C" REX_FUNC(sub_82D11198) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[501].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D11198(ctx, base); }
+extern "C" REX_FUNC(sub_82D11198) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[500].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D11198(ctx, base); }
 REX_EXTERN(__imp__sub_82D13D60);
-extern "C" REX_FUNC(sub_82D13D60) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[502].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D13D60(ctx, base); }
+extern "C" REX_FUNC(sub_82D13D60) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[501].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D13D60(ctx, base); }
 REX_EXTERN(__imp__sub_82D14700);
-extern "C" REX_FUNC(sub_82D14700) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[503].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D14700(ctx, base); }
+extern "C" REX_FUNC(sub_82D14700) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[502].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D14700(ctx, base); }
 REX_EXTERN(__imp__sub_82D15D08);
-extern "C" REX_FUNC(sub_82D15D08) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[504].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D15D08(ctx, base); }
+extern "C" REX_FUNC(sub_82D15D08) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[503].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D15D08(ctx, base); }
 REX_EXTERN(__imp__sub_82D17C20);
-extern "C" REX_FUNC(sub_82D17C20) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[505].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D17C20(ctx, base); }
+extern "C" REX_FUNC(sub_82D17C20) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[504].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D17C20(ctx, base); }
 REX_EXTERN(__imp__sub_82D26660);
-extern "C" REX_FUNC(sub_82D26660) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[506].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D26660(ctx, base); }
+extern "C" REX_FUNC(sub_82D26660) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[505].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D26660(ctx, base); }
 REX_EXTERN(__imp__sub_82D31F18);
-extern "C" REX_FUNC(sub_82D31F18) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[507].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D31F18(ctx, base); }
+extern "C" REX_FUNC(sub_82D31F18) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[506].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D31F18(ctx, base); }
 REX_EXTERN(__imp__sub_82D32B78);
-extern "C" REX_FUNC(sub_82D32B78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[508].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D32B78(ctx, base); }
+extern "C" REX_FUNC(sub_82D32B78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[507].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D32B78(ctx, base); }
 REX_EXTERN(__imp__sub_82D32D80);
-extern "C" REX_FUNC(sub_82D32D80) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[509].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D32D80(ctx, base); }
+extern "C" REX_FUNC(sub_82D32D80) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[508].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D32D80(ctx, base); }
 REX_EXTERN(__imp__sub_82D36350);
-extern "C" REX_FUNC(sub_82D36350) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[510].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D36350(ctx, base); }
+extern "C" REX_FUNC(sub_82D36350) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[509].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D36350(ctx, base); }
 REX_EXTERN(__imp__sub_82D3E2E8);
-extern "C" REX_FUNC(sub_82D3E2E8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[511].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D3E2E8(ctx, base); }
+extern "C" REX_FUNC(sub_82D3E2E8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[510].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D3E2E8(ctx, base); }
 REX_EXTERN(__imp__sub_82D3F240);
-extern "C" REX_FUNC(sub_82D3F240) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[512].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D3F240(ctx, base); }
+extern "C" REX_FUNC(sub_82D3F240) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[511].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D3F240(ctx, base); }
 REX_EXTERN(__imp__sub_82D3F920);
-extern "C" REX_FUNC(sub_82D3F920) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[513].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D3F920(ctx, base); }
+extern "C" REX_FUNC(sub_82D3F920) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[512].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D3F920(ctx, base); }
 REX_EXTERN(__imp__sub_82D423C8);
-extern "C" REX_FUNC(sub_82D423C8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[514].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D423C8(ctx, base); }
+extern "C" REX_FUNC(sub_82D423C8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[513].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D423C8(ctx, base); }
 REX_EXTERN(__imp__sub_82D49C18);
-extern "C" REX_FUNC(sub_82D49C18) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[515].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D49C18(ctx, base); }
+extern "C" REX_FUNC(sub_82D49C18) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[514].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D49C18(ctx, base); }
 REX_EXTERN(__imp__sub_82D4F000);
-extern "C" REX_FUNC(sub_82D4F000) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[516].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D4F000(ctx, base); }
+extern "C" REX_FUNC(sub_82D4F000) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[515].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D4F000(ctx, base); }
 REX_EXTERN(__imp__sub_82D4F230);
-extern "C" REX_FUNC(sub_82D4F230) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[517].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D4F230(ctx, base); }
+extern "C" REX_FUNC(sub_82D4F230) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[516].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D4F230(ctx, base); }
 REX_EXTERN(__imp__sub_82D50E38);
-extern "C" REX_FUNC(sub_82D50E38) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[518].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D50E38(ctx, base); }
+extern "C" REX_FUNC(sub_82D50E38) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[517].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D50E38(ctx, base); }
 REX_EXTERN(__imp__sub_82D515D8);
-extern "C" REX_FUNC(sub_82D515D8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[519].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D515D8(ctx, base); }
+extern "C" REX_FUNC(sub_82D515D8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[518].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D515D8(ctx, base); }
 REX_EXTERN(__imp__sub_82D52FB0);
-extern "C" REX_FUNC(sub_82D52FB0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[520].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D52FB0(ctx, base); }
+extern "C" REX_FUNC(sub_82D52FB0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[519].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D52FB0(ctx, base); }
 REX_EXTERN(__imp__sub_82D5B818);
-extern "C" REX_FUNC(sub_82D5B818) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[521].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D5B818(ctx, base); }
+extern "C" REX_FUNC(sub_82D5B818) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[520].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D5B818(ctx, base); }
 REX_EXTERN(__imp__sub_82D66478);
-extern "C" REX_FUNC(sub_82D66478) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[522].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D66478(ctx, base); }
+extern "C" REX_FUNC(sub_82D66478) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[521].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D66478(ctx, base); }
 REX_EXTERN(__imp__sub_82D67860);
-extern "C" REX_FUNC(sub_82D67860) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[523].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D67860(ctx, base); }
+extern "C" REX_FUNC(sub_82D67860) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[522].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D67860(ctx, base); }
 REX_EXTERN(__imp__sub_82D685F0);
-extern "C" REX_FUNC(sub_82D685F0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[524].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D685F0(ctx, base); }
+extern "C" REX_FUNC(sub_82D685F0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[523].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D685F0(ctx, base); }
 REX_EXTERN(__imp__sub_82D688D8);
-extern "C" REX_FUNC(sub_82D688D8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[525].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D688D8(ctx, base); }
+extern "C" REX_FUNC(sub_82D688D8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[524].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D688D8(ctx, base); }
 REX_EXTERN(__imp__sub_82D69608);
-extern "C" REX_FUNC(sub_82D69608) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[526].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D69608(ctx, base); }
+extern "C" REX_FUNC(sub_82D69608) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[525].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D69608(ctx, base); }
 REX_EXTERN(__imp__sub_82D6A8A0);
-extern "C" REX_FUNC(sub_82D6A8A0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[527].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D6A8A0(ctx, base); }
+extern "C" REX_FUNC(sub_82D6A8A0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[526].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D6A8A0(ctx, base); }
 REX_EXTERN(__imp__sub_82D6B158);
-extern "C" REX_FUNC(sub_82D6B158) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[528].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D6B158(ctx, base); }
+extern "C" REX_FUNC(sub_82D6B158) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[527].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D6B158(ctx, base); }
 REX_EXTERN(__imp__sub_82D6BC68);
-extern "C" REX_FUNC(sub_82D6BC68) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[529].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D6BC68(ctx, base); }
+extern "C" REX_FUNC(sub_82D6BC68) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[528].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D6BC68(ctx, base); }
 REX_EXTERN(__imp__sub_82D6FB18);
-extern "C" REX_FUNC(sub_82D6FB18) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[530].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D6FB18(ctx, base); }
+extern "C" REX_FUNC(sub_82D6FB18) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[529].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D6FB18(ctx, base); }
 REX_EXTERN(__imp__sub_82D742B8);
-extern "C" REX_FUNC(sub_82D742B8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[531].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D742B8(ctx, base); }
+extern "C" REX_FUNC(sub_82D742B8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[530].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D742B8(ctx, base); }
 REX_EXTERN(__imp__sub_82D782A0);
-extern "C" REX_FUNC(sub_82D782A0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[532].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D782A0(ctx, base); }
+extern "C" REX_FUNC(sub_82D782A0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[531].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D782A0(ctx, base); }
 REX_EXTERN(__imp__sub_82D7AB48);
-extern "C" REX_FUNC(sub_82D7AB48) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[533].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D7AB48(ctx, base); }
+extern "C" REX_FUNC(sub_82D7AB48) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[532].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D7AB48(ctx, base); }
 REX_EXTERN(__imp__sub_82D7B590);
-extern "C" REX_FUNC(sub_82D7B590) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[534].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D7B590(ctx, base); }
+extern "C" REX_FUNC(sub_82D7B590) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[533].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D7B590(ctx, base); }
 REX_EXTERN(__imp__sub_82D7EFC0);
-extern "C" REX_FUNC(sub_82D7EFC0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[535].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D7EFC0(ctx, base); }
+extern "C" REX_FUNC(sub_82D7EFC0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[534].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D7EFC0(ctx, base); }
 REX_EXTERN(__imp__sub_82D7F2D8);
-extern "C" REX_FUNC(sub_82D7F2D8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[536].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D7F2D8(ctx, base); }
+extern "C" REX_FUNC(sub_82D7F2D8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[535].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D7F2D8(ctx, base); }
 REX_EXTERN(__imp__sub_82D7F758);
-extern "C" REX_FUNC(sub_82D7F758) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[537].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D7F758(ctx, base); }
+extern "C" REX_FUNC(sub_82D7F758) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[536].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D7F758(ctx, base); }
 REX_EXTERN(__imp__sub_82D8CBC0);
-extern "C" REX_FUNC(sub_82D8CBC0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[538].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D8CBC0(ctx, base); }
+extern "C" REX_FUNC(sub_82D8CBC0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[537].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D8CBC0(ctx, base); }
 REX_EXTERN(__imp__sub_82D915D0);
-extern "C" REX_FUNC(sub_82D915D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[539].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D915D0(ctx, base); }
+extern "C" REX_FUNC(sub_82D915D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[538].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D915D0(ctx, base); }
 REX_EXTERN(__imp__sub_82D91E10);
-extern "C" REX_FUNC(sub_82D91E10) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[540].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D91E10(ctx, base); }
+extern "C" REX_FUNC(sub_82D91E10) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[539].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D91E10(ctx, base); }
 REX_EXTERN(__imp__sub_82D93188);
-extern "C" REX_FUNC(sub_82D93188) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[541].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D93188(ctx, base); }
+extern "C" REX_FUNC(sub_82D93188) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[540].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D93188(ctx, base); }
 REX_EXTERN(__imp__sub_82D97E28);
-extern "C" REX_FUNC(sub_82D97E28) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[542].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D97E28(ctx, base); }
+extern "C" REX_FUNC(sub_82D97E28) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[541].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D97E28(ctx, base); }
 REX_EXTERN(__imp__sub_82D98638);
-extern "C" REX_FUNC(sub_82D98638) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[543].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D98638(ctx, base); }
+extern "C" REX_FUNC(sub_82D98638) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[542].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D98638(ctx, base); }
 REX_EXTERN(__imp__sub_82D98690);
-extern "C" REX_FUNC(sub_82D98690) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[544].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D98690(ctx, base); }
+extern "C" REX_FUNC(sub_82D98690) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[543].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D98690(ctx, base); }
 REX_EXTERN(__imp__sub_82D987A0);
-extern "C" REX_FUNC(sub_82D987A0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[545].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D987A0(ctx, base); }
+extern "C" REX_FUNC(sub_82D987A0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[544].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D987A0(ctx, base); }
 REX_EXTERN(__imp__sub_82D99638);
-extern "C" REX_FUNC(sub_82D99638) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[546].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D99638(ctx, base); }
+extern "C" REX_FUNC(sub_82D99638) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[545].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D99638(ctx, base); }
 REX_EXTERN(__imp__sub_82D9BE70);
-extern "C" REX_FUNC(sub_82D9BE70) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[547].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D9BE70(ctx, base); }
+extern "C" REX_FUNC(sub_82D9BE70) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[546].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D9BE70(ctx, base); }
 REX_EXTERN(__imp__sub_82D9FC20);
-extern "C" REX_FUNC(sub_82D9FC20) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[548].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D9FC20(ctx, base); }
+extern "C" REX_FUNC(sub_82D9FC20) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[547].fetch_add(1, std::memory_order_relaxed); __imp__sub_82D9FC20(ctx, base); }
 REX_EXTERN(__imp__sub_82DA9D18);
-extern "C" REX_FUNC(sub_82DA9D18) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[549].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DA9D18(ctx, base); }
+extern "C" REX_FUNC(sub_82DA9D18) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[548].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DA9D18(ctx, base); }
 REX_EXTERN(__imp__sub_82DC6520);
-extern "C" REX_FUNC(sub_82DC6520) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[550].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DC6520(ctx, base); }
+extern "C" REX_FUNC(sub_82DC6520) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[549].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DC6520(ctx, base); }
 REX_EXTERN(__imp__sub_82DD7E90);
-extern "C" REX_FUNC(sub_82DD7E90) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[551].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DD7E90(ctx, base); }
+extern "C" REX_FUNC(sub_82DD7E90) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[550].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DD7E90(ctx, base); }
 REX_EXTERN(__imp__sub_82DDE078);
-extern "C" REX_FUNC(sub_82DDE078) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[552].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DDE078(ctx, base); }
+extern "C" REX_FUNC(sub_82DDE078) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[551].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DDE078(ctx, base); }
 REX_EXTERN(__imp__sub_82DE0C00);
-extern "C" REX_FUNC(sub_82DE0C00) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[553].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DE0C00(ctx, base); }
+extern "C" REX_FUNC(sub_82DE0C00) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[552].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DE0C00(ctx, base); }
 REX_EXTERN(__imp__sub_82DE0FB8);
-extern "C" REX_FUNC(sub_82DE0FB8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[554].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DE0FB8(ctx, base); }
+extern "C" REX_FUNC(sub_82DE0FB8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[553].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DE0FB8(ctx, base); }
 REX_EXTERN(__imp__sub_82DE53D0);
-extern "C" REX_FUNC(sub_82DE53D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[555].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DE53D0(ctx, base); }
+extern "C" REX_FUNC(sub_82DE53D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[554].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DE53D0(ctx, base); }
 REX_EXTERN(__imp__sub_82DE8008);
-extern "C" REX_FUNC(sub_82DE8008) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[556].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DE8008(ctx, base); }
+extern "C" REX_FUNC(sub_82DE8008) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[555].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DE8008(ctx, base); }
 REX_EXTERN(__imp__sub_82DEA7D8);
-extern "C" REX_FUNC(sub_82DEA7D8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[557].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DEA7D8(ctx, base); }
+extern "C" REX_FUNC(sub_82DEA7D8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[556].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DEA7D8(ctx, base); }
 REX_EXTERN(__imp__sub_82DECCF8);
-extern "C" REX_FUNC(sub_82DECCF8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[558].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DECCF8(ctx, base); }
+extern "C" REX_FUNC(sub_82DECCF8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[557].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DECCF8(ctx, base); }
 REX_EXTERN(__imp__sub_82DF0070);
-extern "C" REX_FUNC(sub_82DF0070) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[559].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DF0070(ctx, base); }
+extern "C" REX_FUNC(sub_82DF0070) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[558].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DF0070(ctx, base); }
 REX_EXTERN(__imp__sub_82DF0170);
-extern "C" REX_FUNC(sub_82DF0170) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[560].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DF0170(ctx, base); }
+extern "C" REX_FUNC(sub_82DF0170) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[559].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DF0170(ctx, base); }
 REX_EXTERN(__imp__sub_82DFC518);
-extern "C" REX_FUNC(sub_82DFC518) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[561].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DFC518(ctx, base); }
+extern "C" REX_FUNC(sub_82DFC518) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[560].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DFC518(ctx, base); }
 REX_EXTERN(__imp__sub_82DFF6F0);
-extern "C" REX_FUNC(sub_82DFF6F0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[562].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DFF6F0(ctx, base); }
+extern "C" REX_FUNC(sub_82DFF6F0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[561].fetch_add(1, std::memory_order_relaxed); __imp__sub_82DFF6F0(ctx, base); }
 REX_EXTERN(__imp__sub_82E04CB8);
-extern "C" REX_FUNC(sub_82E04CB8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[563].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E04CB8(ctx, base); }
+extern "C" REX_FUNC(sub_82E04CB8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[562].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E04CB8(ctx, base); }
 REX_EXTERN(__imp__sub_82E05E00);
-extern "C" REX_FUNC(sub_82E05E00) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[564].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E05E00(ctx, base); }
+extern "C" REX_FUNC(sub_82E05E00) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[563].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E05E00(ctx, base); }
 REX_EXTERN(__imp__sub_82E0AB40);
-extern "C" REX_FUNC(sub_82E0AB40) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[565].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E0AB40(ctx, base); }
+extern "C" REX_FUNC(sub_82E0AB40) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[564].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E0AB40(ctx, base); }
 REX_EXTERN(__imp__sub_82E0C158);
-extern "C" REX_FUNC(sub_82E0C158) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[566].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E0C158(ctx, base); }
+extern "C" REX_FUNC(sub_82E0C158) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[565].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E0C158(ctx, base); }
 REX_EXTERN(__imp__sub_82E0C3B8);
-extern "C" REX_FUNC(sub_82E0C3B8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[567].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E0C3B8(ctx, base); }
+extern "C" REX_FUNC(sub_82E0C3B8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[566].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E0C3B8(ctx, base); }
 REX_EXTERN(__imp__sub_82E0EC10);
-extern "C" REX_FUNC(sub_82E0EC10) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[568].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E0EC10(ctx, base); }
+extern "C" REX_FUNC(sub_82E0EC10) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[567].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E0EC10(ctx, base); }
 REX_EXTERN(__imp__sub_82E0F0F8);
-extern "C" REX_FUNC(sub_82E0F0F8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[569].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E0F0F8(ctx, base); }
+extern "C" REX_FUNC(sub_82E0F0F8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[568].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E0F0F8(ctx, base); }
 REX_EXTERN(__imp__sub_82E11308);
-extern "C" REX_FUNC(sub_82E11308) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[570].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E11308(ctx, base); }
+extern "C" REX_FUNC(sub_82E11308) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[569].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E11308(ctx, base); }
 REX_EXTERN(__imp__sub_82E117A0);
-extern "C" REX_FUNC(sub_82E117A0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[571].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E117A0(ctx, base); }
+extern "C" REX_FUNC(sub_82E117A0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[570].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E117A0(ctx, base); }
 REX_EXTERN(__imp__sub_82E12380);
-extern "C" REX_FUNC(sub_82E12380) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[572].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E12380(ctx, base); }
+extern "C" REX_FUNC(sub_82E12380) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[571].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E12380(ctx, base); }
 REX_EXTERN(__imp__sub_82E14F78);
-extern "C" REX_FUNC(sub_82E14F78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[573].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E14F78(ctx, base); }
+extern "C" REX_FUNC(sub_82E14F78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[572].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E14F78(ctx, base); }
 REX_EXTERN(__imp__sub_82E157B0);
-extern "C" REX_FUNC(sub_82E157B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[574].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E157B0(ctx, base); }
+extern "C" REX_FUNC(sub_82E157B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[573].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E157B0(ctx, base); }
 REX_EXTERN(__imp__sub_82E18120);
-extern "C" REX_FUNC(sub_82E18120) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[575].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E18120(ctx, base); }
+extern "C" REX_FUNC(sub_82E18120) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[574].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E18120(ctx, base); }
 REX_EXTERN(__imp__sub_82E18DB0);
-extern "C" REX_FUNC(sub_82E18DB0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[576].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E18DB0(ctx, base); }
+extern "C" REX_FUNC(sub_82E18DB0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[575].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E18DB0(ctx, base); }
 REX_EXTERN(__imp__sub_82E191B0);
-extern "C" REX_FUNC(sub_82E191B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[577].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E191B0(ctx, base); }
+extern "C" REX_FUNC(sub_82E191B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[576].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E191B0(ctx, base); }
 REX_EXTERN(__imp__sub_82E1F428);
-extern "C" REX_FUNC(sub_82E1F428) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[578].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E1F428(ctx, base); }
+extern "C" REX_FUNC(sub_82E1F428) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[577].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E1F428(ctx, base); }
 REX_EXTERN(__imp__sub_82E25268);
-extern "C" REX_FUNC(sub_82E25268) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[579].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E25268(ctx, base); }
+extern "C" REX_FUNC(sub_82E25268) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[578].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E25268(ctx, base); }
 REX_EXTERN(__imp__sub_82E28258);
-extern "C" REX_FUNC(sub_82E28258) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[580].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E28258(ctx, base); }
+extern "C" REX_FUNC(sub_82E28258) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[579].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E28258(ctx, base); }
 REX_EXTERN(__imp__sub_82E28558);
-extern "C" REX_FUNC(sub_82E28558) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[581].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E28558(ctx, base); }
+extern "C" REX_FUNC(sub_82E28558) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[580].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E28558(ctx, base); }
 REX_EXTERN(__imp__sub_82E2FD88);
-extern "C" REX_FUNC(sub_82E2FD88) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[582].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E2FD88(ctx, base); }
+extern "C" REX_FUNC(sub_82E2FD88) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[581].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E2FD88(ctx, base); }
 REX_EXTERN(__imp__sub_82E41B60);
-extern "C" REX_FUNC(sub_82E41B60) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[583].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E41B60(ctx, base); }
+extern "C" REX_FUNC(sub_82E41B60) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[582].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E41B60(ctx, base); }
 REX_EXTERN(__imp__sub_82E46D88);
-extern "C" REX_FUNC(sub_82E46D88) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[584].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E46D88(ctx, base); }
+extern "C" REX_FUNC(sub_82E46D88) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[583].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E46D88(ctx, base); }
 REX_EXTERN(__imp__sub_82E47BF8);
-extern "C" REX_FUNC(sub_82E47BF8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[585].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E47BF8(ctx, base); }
+extern "C" REX_FUNC(sub_82E47BF8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[584].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E47BF8(ctx, base); }
 REX_EXTERN(__imp__sub_82E4FEF8);
-extern "C" REX_FUNC(sub_82E4FEF8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[586].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E4FEF8(ctx, base); }
+extern "C" REX_FUNC(sub_82E4FEF8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[585].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E4FEF8(ctx, base); }
 REX_EXTERN(__imp__sub_82E57818);
-extern "C" REX_FUNC(sub_82E57818) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[587].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E57818(ctx, base); }
+extern "C" REX_FUNC(sub_82E57818) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[586].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E57818(ctx, base); }
 REX_EXTERN(__imp__sub_82E5AA20);
-extern "C" REX_FUNC(sub_82E5AA20) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[588].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E5AA20(ctx, base); }
+extern "C" REX_FUNC(sub_82E5AA20) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[587].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E5AA20(ctx, base); }
 REX_EXTERN(__imp__sub_82E6D278);
-extern "C" REX_FUNC(sub_82E6D278) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[589].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E6D278(ctx, base); }
+extern "C" REX_FUNC(sub_82E6D278) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[588].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E6D278(ctx, base); }
 REX_EXTERN(__imp__sub_82E71730);
-extern "C" REX_FUNC(sub_82E71730) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[590].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E71730(ctx, base); }
+extern "C" REX_FUNC(sub_82E71730) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[589].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E71730(ctx, base); }
 REX_EXTERN(__imp__sub_82E77F80);
-extern "C" REX_FUNC(sub_82E77F80) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[591].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E77F80(ctx, base); }
+extern "C" REX_FUNC(sub_82E77F80) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[590].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E77F80(ctx, base); }
 REX_EXTERN(__imp__sub_82E7D3E8);
-extern "C" REX_FUNC(sub_82E7D3E8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[592].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E7D3E8(ctx, base); }
+extern "C" REX_FUNC(sub_82E7D3E8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[591].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E7D3E8(ctx, base); }
 REX_EXTERN(__imp__sub_82E808C0);
-extern "C" REX_FUNC(sub_82E808C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[593].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E808C0(ctx, base); }
+extern "C" REX_FUNC(sub_82E808C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[592].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E808C0(ctx, base); }
 REX_EXTERN(__imp__sub_82E86F40);
-extern "C" REX_FUNC(sub_82E86F40) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[594].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E86F40(ctx, base); }
+extern "C" REX_FUNC(sub_82E86F40) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[593].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E86F40(ctx, base); }
 REX_EXTERN(__imp__sub_82E87FF0);
-extern "C" REX_FUNC(sub_82E87FF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[595].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E87FF0(ctx, base); }
+extern "C" REX_FUNC(sub_82E87FF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[594].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E87FF0(ctx, base); }
 REX_EXTERN(__imp__sub_82E88388);
-extern "C" REX_FUNC(sub_82E88388) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[596].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E88388(ctx, base); }
+extern "C" REX_FUNC(sub_82E88388) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[595].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E88388(ctx, base); }
 REX_EXTERN(__imp__sub_82E88700);
-extern "C" REX_FUNC(sub_82E88700) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[597].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E88700(ctx, base); }
+extern "C" REX_FUNC(sub_82E88700) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[596].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E88700(ctx, base); }
 REX_EXTERN(__imp__sub_82E88788);
-extern "C" REX_FUNC(sub_82E88788) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[598].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E88788(ctx, base); }
+extern "C" REX_FUNC(sub_82E88788) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[597].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E88788(ctx, base); }
 REX_EXTERN(__imp__sub_82E89360);
-extern "C" REX_FUNC(sub_82E89360) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[599].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E89360(ctx, base); }
+extern "C" REX_FUNC(sub_82E89360) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[598].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E89360(ctx, base); }
 REX_EXTERN(__imp__sub_82E8DF50);
-extern "C" REX_FUNC(sub_82E8DF50) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[600].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E8DF50(ctx, base); }
+extern "C" REX_FUNC(sub_82E8DF50) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[599].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E8DF50(ctx, base); }
 REX_EXTERN(__imp__sub_82E8FBE0);
-extern "C" REX_FUNC(sub_82E8FBE0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[601].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E8FBE0(ctx, base); }
+extern "C" REX_FUNC(sub_82E8FBE0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[600].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E8FBE0(ctx, base); }
 REX_EXTERN(__imp__sub_82E94460);
-extern "C" REX_FUNC(sub_82E94460) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[602].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E94460(ctx, base); }
+extern "C" REX_FUNC(sub_82E94460) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[601].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E94460(ctx, base); }
 REX_EXTERN(__imp__sub_82E94BA0);
-extern "C" REX_FUNC(sub_82E94BA0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[603].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E94BA0(ctx, base); }
+extern "C" REX_FUNC(sub_82E94BA0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[602].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E94BA0(ctx, base); }
 REX_EXTERN(__imp__sub_82E95978);
-extern "C" REX_FUNC(sub_82E95978) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[604].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E95978(ctx, base); }
+extern "C" REX_FUNC(sub_82E95978) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[603].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E95978(ctx, base); }
 REX_EXTERN(__imp__sub_82E96588);
-extern "C" REX_FUNC(sub_82E96588) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[605].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E96588(ctx, base); }
+extern "C" REX_FUNC(sub_82E96588) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[604].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E96588(ctx, base); }
 REX_EXTERN(__imp__sub_82E9A020);
-extern "C" REX_FUNC(sub_82E9A020) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[606].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E9A020(ctx, base); }
+extern "C" REX_FUNC(sub_82E9A020) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[605].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E9A020(ctx, base); }
 REX_EXTERN(__imp__sub_82E9F500);
-extern "C" REX_FUNC(sub_82E9F500) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[607].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E9F500(ctx, base); }
+extern "C" REX_FUNC(sub_82E9F500) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[606].fetch_add(1, std::memory_order_relaxed); __imp__sub_82E9F500(ctx, base); }
 REX_EXTERN(__imp__sub_82EB1AC0);
-extern "C" REX_FUNC(sub_82EB1AC0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[608].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB1AC0(ctx, base); }
+extern "C" REX_FUNC(sub_82EB1AC0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[607].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB1AC0(ctx, base); }
 REX_EXTERN(__imp__sub_82EB2710);
-extern "C" REX_FUNC(sub_82EB2710) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[609].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB2710(ctx, base); }
+extern "C" REX_FUNC(sub_82EB2710) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[608].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB2710(ctx, base); }
 REX_EXTERN(__imp__sub_82EB4318);
-extern "C" REX_FUNC(sub_82EB4318) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[610].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB4318(ctx, base); }
+extern "C" REX_FUNC(sub_82EB4318) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[609].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB4318(ctx, base); }
 REX_EXTERN(__imp__sub_82EB4CF0);
-extern "C" REX_FUNC(sub_82EB4CF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[611].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB4CF0(ctx, base); }
+extern "C" REX_FUNC(sub_82EB4CF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[610].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB4CF0(ctx, base); }
 REX_EXTERN(__imp__sub_82EB4F78);
-extern "C" REX_FUNC(sub_82EB4F78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[612].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB4F78(ctx, base); }
+extern "C" REX_FUNC(sub_82EB4F78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[611].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB4F78(ctx, base); }
 REX_EXTERN(__imp__sub_82EB6120);
-extern "C" REX_FUNC(sub_82EB6120) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[613].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB6120(ctx, base); }
+extern "C" REX_FUNC(sub_82EB6120) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[612].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB6120(ctx, base); }
 REX_EXTERN(__imp__sub_82EB7CB0);
-extern "C" REX_FUNC(sub_82EB7CB0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[614].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB7CB0(ctx, base); }
+extern "C" REX_FUNC(sub_82EB7CB0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[613].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB7CB0(ctx, base); }
 REX_EXTERN(__imp__sub_82EB9FA8);
-extern "C" REX_FUNC(sub_82EB9FA8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[615].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB9FA8(ctx, base); }
+extern "C" REX_FUNC(sub_82EB9FA8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[614].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EB9FA8(ctx, base); }
 REX_EXTERN(__imp__sub_82EBBB30);
-extern "C" REX_FUNC(sub_82EBBB30) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[616].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EBBB30(ctx, base); }
+extern "C" REX_FUNC(sub_82EBBB30) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[615].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EBBB30(ctx, base); }
 REX_EXTERN(__imp__sub_82EBD7C0);
-extern "C" REX_FUNC(sub_82EBD7C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[617].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EBD7C0(ctx, base); }
+extern "C" REX_FUNC(sub_82EBD7C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[616].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EBD7C0(ctx, base); }
 REX_EXTERN(__imp__sub_82EC0398);
-extern "C" REX_FUNC(sub_82EC0398) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[618].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EC0398(ctx, base); }
+extern "C" REX_FUNC(sub_82EC0398) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[617].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EC0398(ctx, base); }
 REX_EXTERN(__imp__sub_82EC5338);
-extern "C" REX_FUNC(sub_82EC5338) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[619].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EC5338(ctx, base); }
+extern "C" REX_FUNC(sub_82EC5338) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[618].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EC5338(ctx, base); }
 REX_EXTERN(__imp__sub_82ECBA98);
-extern "C" REX_FUNC(sub_82ECBA98) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[620].fetch_add(1, std::memory_order_relaxed); __imp__sub_82ECBA98(ctx, base); }
+extern "C" REX_FUNC(sub_82ECBA98) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[619].fetch_add(1, std::memory_order_relaxed); __imp__sub_82ECBA98(ctx, base); }
 REX_EXTERN(__imp__sub_82ECC948);
-extern "C" REX_FUNC(sub_82ECC948) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[621].fetch_add(1, std::memory_order_relaxed); __imp__sub_82ECC948(ctx, base); }
+extern "C" REX_FUNC(sub_82ECC948) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[620].fetch_add(1, std::memory_order_relaxed); __imp__sub_82ECC948(ctx, base); }
 REX_EXTERN(__imp__sub_82ECD298);
-extern "C" REX_FUNC(sub_82ECD298) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[622].fetch_add(1, std::memory_order_relaxed); __imp__sub_82ECD298(ctx, base); }
+extern "C" REX_FUNC(sub_82ECD298) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[621].fetch_add(1, std::memory_order_relaxed); __imp__sub_82ECD298(ctx, base); }
 REX_EXTERN(__imp__sub_82ECD568);
-extern "C" REX_FUNC(sub_82ECD568) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[623].fetch_add(1, std::memory_order_relaxed); __imp__sub_82ECD568(ctx, base); }
+extern "C" REX_FUNC(sub_82ECD568) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[622].fetch_add(1, std::memory_order_relaxed); __imp__sub_82ECD568(ctx, base); }
 REX_EXTERN(__imp__sub_82ECDB28);
-extern "C" REX_FUNC(sub_82ECDB28) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[624].fetch_add(1, std::memory_order_relaxed); __imp__sub_82ECDB28(ctx, base); }
+extern "C" REX_FUNC(sub_82ECDB28) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[623].fetch_add(1, std::memory_order_relaxed); __imp__sub_82ECDB28(ctx, base); }
 REX_EXTERN(__imp__sub_82ED2718);
-extern "C" REX_FUNC(sub_82ED2718) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[625].fetch_add(1, std::memory_order_relaxed); __imp__sub_82ED2718(ctx, base); }
+extern "C" REX_FUNC(sub_82ED2718) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[624].fetch_add(1, std::memory_order_relaxed); __imp__sub_82ED2718(ctx, base); }
 REX_EXTERN(__imp__sub_82EDEB68);
-extern "C" REX_FUNC(sub_82EDEB68) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[626].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EDEB68(ctx, base); }
+extern "C" REX_FUNC(sub_82EDEB68) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[625].fetch_add(1, std::memory_order_relaxed); __imp__sub_82EDEB68(ctx, base); }
 REX_EXTERN(__imp__sub_82F3BA78);
-extern "C" REX_FUNC(sub_82F3BA78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[627].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3BA78(ctx, base); }
+extern "C" REX_FUNC(sub_82F3BA78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[626].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3BA78(ctx, base); }
 REX_EXTERN(__imp__sub_82F3C2A8);
-extern "C" REX_FUNC(sub_82F3C2A8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[628].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3C2A8(ctx, base); }
+extern "C" REX_FUNC(sub_82F3C2A8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[627].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3C2A8(ctx, base); }
 REX_EXTERN(__imp__sub_82F3DFE8);
-extern "C" REX_FUNC(sub_82F3DFE8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[629].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3DFE8(ctx, base); }
+extern "C" REX_FUNC(sub_82F3DFE8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[628].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3DFE8(ctx, base); }
 REX_EXTERN(__imp__sub_82F3E530);
-extern "C" REX_FUNC(sub_82F3E530) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[630].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3E530(ctx, base); }
+extern "C" REX_FUNC(sub_82F3E530) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[629].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3E530(ctx, base); }
 REX_EXTERN(__imp__sub_82F3E890);
-extern "C" REX_FUNC(sub_82F3E890) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[631].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3E890(ctx, base); }
+extern "C" REX_FUNC(sub_82F3E890) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[630].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3E890(ctx, base); }
 REX_EXTERN(__imp__sub_82F3E9C8);
-extern "C" REX_FUNC(sub_82F3E9C8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[632].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3E9C8(ctx, base); }
+extern "C" REX_FUNC(sub_82F3E9C8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[631].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3E9C8(ctx, base); }
 REX_EXTERN(__imp__sub_82F3EA80);
-extern "C" REX_FUNC(sub_82F3EA80) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[633].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3EA80(ctx, base); }
+extern "C" REX_FUNC(sub_82F3EA80) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[632].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3EA80(ctx, base); }
 REX_EXTERN(__imp__sub_82F3EDE8);
-extern "C" REX_FUNC(sub_82F3EDE8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[634].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3EDE8(ctx, base); }
+extern "C" REX_FUNC(sub_82F3EDE8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[633].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3EDE8(ctx, base); }
 REX_EXTERN(__imp__sub_82F3FEC8);
-extern "C" REX_FUNC(sub_82F3FEC8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[635].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3FEC8(ctx, base); }
+extern "C" REX_FUNC(sub_82F3FEC8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[634].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F3FEC8(ctx, base); }
 REX_EXTERN(__imp__sub_82F43600);
-extern "C" REX_FUNC(sub_82F43600) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[636].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F43600(ctx, base); }
+extern "C" REX_FUNC(sub_82F43600) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[635].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F43600(ctx, base); }
 REX_EXTERN(__imp__sub_82F54860);
-extern "C" REX_FUNC(sub_82F54860) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[637].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F54860(ctx, base); }
+extern "C" REX_FUNC(sub_82F54860) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[636].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F54860(ctx, base); }
 REX_EXTERN(__imp__sub_82F548B0);
-extern "C" REX_FUNC(sub_82F548B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[638].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F548B0(ctx, base); }
+extern "C" REX_FUNC(sub_82F548B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[637].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F548B0(ctx, base); }
 REX_EXTERN(__imp__sub_82F65A70);
-extern "C" REX_FUNC(sub_82F65A70) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[639].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F65A70(ctx, base); }
+extern "C" REX_FUNC(sub_82F65A70) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[638].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F65A70(ctx, base); }
 REX_EXTERN(__imp__sub_82F65CC0);
-extern "C" REX_FUNC(sub_82F65CC0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[640].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F65CC0(ctx, base); }
+extern "C" REX_FUNC(sub_82F65CC0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[639].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F65CC0(ctx, base); }
 REX_EXTERN(__imp__sub_82F6BDC8);
-extern "C" REX_FUNC(sub_82F6BDC8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[641].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F6BDC8(ctx, base); }
+extern "C" REX_FUNC(sub_82F6BDC8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[640].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F6BDC8(ctx, base); }
 REX_EXTERN(__imp__sub_82F6C3D0);
-extern "C" REX_FUNC(sub_82F6C3D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[642].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F6C3D0(ctx, base); }
+extern "C" REX_FUNC(sub_82F6C3D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[641].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F6C3D0(ctx, base); }
 REX_EXTERN(__imp__sub_82F6C508);
-extern "C" REX_FUNC(sub_82F6C508) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[643].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F6C508(ctx, base); }
+extern "C" REX_FUNC(sub_82F6C508) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[642].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F6C508(ctx, base); }
 REX_EXTERN(__imp__sub_82F77478);
-extern "C" REX_FUNC(sub_82F77478) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[644].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F77478(ctx, base); }
+extern "C" REX_FUNC(sub_82F77478) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[643].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F77478(ctx, base); }
 REX_EXTERN(__imp__sub_82F9BFB0);
-extern "C" REX_FUNC(sub_82F9BFB0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[645].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F9BFB0(ctx, base); }
+extern "C" REX_FUNC(sub_82F9BFB0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[644].fetch_add(1, std::memory_order_relaxed); __imp__sub_82F9BFB0(ctx, base); }
 REX_EXTERN(__imp__sub_82FA4A20);
-extern "C" REX_FUNC(sub_82FA4A20) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[646].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FA4A20(ctx, base); }
+extern "C" REX_FUNC(sub_82FA4A20) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[645].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FA4A20(ctx, base); }
 REX_EXTERN(__imp__sub_82FA5B28);
-extern "C" REX_FUNC(sub_82FA5B28) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[647].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FA5B28(ctx, base); }
+extern "C" REX_FUNC(sub_82FA5B28) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[646].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FA5B28(ctx, base); }
 REX_EXTERN(__imp__sub_82FA6AE0);
-extern "C" REX_FUNC(sub_82FA6AE0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[648].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FA6AE0(ctx, base); }
+extern "C" REX_FUNC(sub_82FA6AE0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[647].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FA6AE0(ctx, base); }
 REX_EXTERN(__imp__sub_82FA9178);
-extern "C" REX_FUNC(sub_82FA9178) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[649].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FA9178(ctx, base); }
+extern "C" REX_FUNC(sub_82FA9178) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[648].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FA9178(ctx, base); }
 REX_EXTERN(__imp__sub_82FAA0D0);
-extern "C" REX_FUNC(sub_82FAA0D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[650].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FAA0D0(ctx, base); }
+extern "C" REX_FUNC(sub_82FAA0D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[649].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FAA0D0(ctx, base); }
 REX_EXTERN(__imp__sub_82FB4E58);
-extern "C" REX_FUNC(sub_82FB4E58) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[651].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FB4E58(ctx, base); }
+extern "C" REX_FUNC(sub_82FB4E58) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[650].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FB4E58(ctx, base); }
 REX_EXTERN(__imp__sub_82FB6440);
-extern "C" REX_FUNC(sub_82FB6440) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[652].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FB6440(ctx, base); }
+extern "C" REX_FUNC(sub_82FB6440) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[651].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FB6440(ctx, base); }
 REX_EXTERN(__imp__sub_82FB9BD8);
-extern "C" REX_FUNC(sub_82FB9BD8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[653].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FB9BD8(ctx, base); }
+extern "C" REX_FUNC(sub_82FB9BD8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[652].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FB9BD8(ctx, base); }
 REX_EXTERN(__imp__sub_82FBA420);
-extern "C" REX_FUNC(sub_82FBA420) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[654].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBA420(ctx, base); }
+extern "C" REX_FUNC(sub_82FBA420) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[653].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBA420(ctx, base); }
 REX_EXTERN(__imp__sub_82FBA700);
-extern "C" REX_FUNC(sub_82FBA700) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[655].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBA700(ctx, base); }
+extern "C" REX_FUNC(sub_82FBA700) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[654].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBA700(ctx, base); }
 REX_EXTERN(__imp__sub_82FBA8E0);
-extern "C" REX_FUNC(sub_82FBA8E0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[656].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBA8E0(ctx, base); }
+extern "C" REX_FUNC(sub_82FBA8E0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[655].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBA8E0(ctx, base); }
 REX_EXTERN(__imp__sub_82FBCAF0);
-extern "C" REX_FUNC(sub_82FBCAF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[657].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBCAF0(ctx, base); }
+extern "C" REX_FUNC(sub_82FBCAF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[656].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBCAF0(ctx, base); }
 REX_EXTERN(__imp__sub_82FBCC20);
-extern "C" REX_FUNC(sub_82FBCC20) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[658].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBCC20(ctx, base); }
+extern "C" REX_FUNC(sub_82FBCC20) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[657].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBCC20(ctx, base); }
 REX_EXTERN(__imp__sub_82FBDCB8);
-extern "C" REX_FUNC(sub_82FBDCB8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[659].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBDCB8(ctx, base); }
+extern "C" REX_FUNC(sub_82FBDCB8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[658].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBDCB8(ctx, base); }
 REX_EXTERN(__imp__sub_82FBE0B0);
-extern "C" REX_FUNC(sub_82FBE0B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[660].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBE0B0(ctx, base); }
+extern "C" REX_FUNC(sub_82FBE0B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[659].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBE0B0(ctx, base); }
 REX_EXTERN(__imp__sub_82FBE2E0);
-extern "C" REX_FUNC(sub_82FBE2E0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[661].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBE2E0(ctx, base); }
+extern "C" REX_FUNC(sub_82FBE2E0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[660].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBE2E0(ctx, base); }
 REX_EXTERN(__imp__sub_82FBE380);
-extern "C" REX_FUNC(sub_82FBE380) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[662].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBE380(ctx, base); }
+extern "C" REX_FUNC(sub_82FBE380) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[661].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBE380(ctx, base); }
 REX_EXTERN(__imp__sub_82FBE420);
-extern "C" REX_FUNC(sub_82FBE420) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[663].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBE420(ctx, base); }
+extern "C" REX_FUNC(sub_82FBE420) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[662].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBE420(ctx, base); }
 REX_EXTERN(__imp__sub_82FBE488);
-extern "C" REX_FUNC(sub_82FBE488) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[664].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBE488(ctx, base); }
+extern "C" REX_FUNC(sub_82FBE488) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[663].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FBE488(ctx, base); }
 REX_EXTERN(__imp__sub_82FC0BB8);
-extern "C" REX_FUNC(sub_82FC0BB8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[665].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FC0BB8(ctx, base); }
+extern "C" REX_FUNC(sub_82FC0BB8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[664].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FC0BB8(ctx, base); }
 REX_EXTERN(__imp__sub_82FC18B0);
-extern "C" REX_FUNC(sub_82FC18B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[666].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FC18B0(ctx, base); }
+extern "C" REX_FUNC(sub_82FC18B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[665].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FC18B0(ctx, base); }
 REX_EXTERN(__imp__sub_82FC1BF8);
-extern "C" REX_FUNC(sub_82FC1BF8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[667].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FC1BF8(ctx, base); }
+extern "C" REX_FUNC(sub_82FC1BF8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[666].fetch_add(1, std::memory_order_relaxed); __imp__sub_82FC1BF8(ctx, base); }
 REX_EXTERN(__imp__sub_83012730);
-extern "C" REX_FUNC(sub_83012730) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[668].fetch_add(1, std::memory_order_relaxed); __imp__sub_83012730(ctx, base); }
+extern "C" REX_FUNC(sub_83012730) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[667].fetch_add(1, std::memory_order_relaxed); __imp__sub_83012730(ctx, base); }
 REX_EXTERN(__imp__sub_83018BD0);
-extern "C" REX_FUNC(sub_83018BD0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[669].fetch_add(1, std::memory_order_relaxed); __imp__sub_83018BD0(ctx, base); }
+extern "C" REX_FUNC(sub_83018BD0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[668].fetch_add(1, std::memory_order_relaxed); __imp__sub_83018BD0(ctx, base); }
 REX_EXTERN(__imp__sub_830199C0);
-extern "C" REX_FUNC(sub_830199C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[670].fetch_add(1, std::memory_order_relaxed); __imp__sub_830199C0(ctx, base); }
+extern "C" REX_FUNC(sub_830199C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[669].fetch_add(1, std::memory_order_relaxed); __imp__sub_830199C0(ctx, base); }
 REX_EXTERN(__imp__sub_8301A510);
-extern "C" REX_FUNC(sub_8301A510) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[671].fetch_add(1, std::memory_order_relaxed); __imp__sub_8301A510(ctx, base); }
+extern "C" REX_FUNC(sub_8301A510) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[670].fetch_add(1, std::memory_order_relaxed); __imp__sub_8301A510(ctx, base); }
 REX_EXTERN(__imp__sub_8301DB30);
-extern "C" REX_FUNC(sub_8301DB30) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[672].fetch_add(1, std::memory_order_relaxed); __imp__sub_8301DB30(ctx, base); }
+extern "C" REX_FUNC(sub_8301DB30) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[671].fetch_add(1, std::memory_order_relaxed); __imp__sub_8301DB30(ctx, base); }
 REX_EXTERN(__imp__sub_83023428);
-extern "C" REX_FUNC(sub_83023428) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[673].fetch_add(1, std::memory_order_relaxed); __imp__sub_83023428(ctx, base); }
+extern "C" REX_FUNC(sub_83023428) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[672].fetch_add(1, std::memory_order_relaxed); __imp__sub_83023428(ctx, base); }
 REX_EXTERN(__imp__sub_83026540);
-extern "C" REX_FUNC(sub_83026540) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[674].fetch_add(1, std::memory_order_relaxed); __imp__sub_83026540(ctx, base); }
+extern "C" REX_FUNC(sub_83026540) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[673].fetch_add(1, std::memory_order_relaxed); __imp__sub_83026540(ctx, base); }
 REX_EXTERN(__imp__sub_83028848);
-extern "C" REX_FUNC(sub_83028848) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[675].fetch_add(1, std::memory_order_relaxed); __imp__sub_83028848(ctx, base); }
+extern "C" REX_FUNC(sub_83028848) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[674].fetch_add(1, std::memory_order_relaxed); __imp__sub_83028848(ctx, base); }
 REX_EXTERN(__imp__sub_8302F1C0);
-extern "C" REX_FUNC(sub_8302F1C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[676].fetch_add(1, std::memory_order_relaxed); __imp__sub_8302F1C0(ctx, base); }
+extern "C" REX_FUNC(sub_8302F1C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[675].fetch_add(1, std::memory_order_relaxed); __imp__sub_8302F1C0(ctx, base); }
 REX_EXTERN(__imp__sub_830300C0);
-extern "C" REX_FUNC(sub_830300C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[677].fetch_add(1, std::memory_order_relaxed); __imp__sub_830300C0(ctx, base); }
+extern "C" REX_FUNC(sub_830300C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[676].fetch_add(1, std::memory_order_relaxed); __imp__sub_830300C0(ctx, base); }
 REX_EXTERN(__imp__sub_830304A0);
-extern "C" REX_FUNC(sub_830304A0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[678].fetch_add(1, std::memory_order_relaxed); __imp__sub_830304A0(ctx, base); }
+extern "C" REX_FUNC(sub_830304A0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[677].fetch_add(1, std::memory_order_relaxed); __imp__sub_830304A0(ctx, base); }
 REX_EXTERN(__imp__sub_830309B0);
-extern "C" REX_FUNC(sub_830309B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[679].fetch_add(1, std::memory_order_relaxed); __imp__sub_830309B0(ctx, base); }
+extern "C" REX_FUNC(sub_830309B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[678].fetch_add(1, std::memory_order_relaxed); __imp__sub_830309B0(ctx, base); }
 REX_EXTERN(__imp__sub_83031F78);
-extern "C" REX_FUNC(sub_83031F78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[680].fetch_add(1, std::memory_order_relaxed); __imp__sub_83031F78(ctx, base); }
+extern "C" REX_FUNC(sub_83031F78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[679].fetch_add(1, std::memory_order_relaxed); __imp__sub_83031F78(ctx, base); }
 REX_EXTERN(__imp__sub_830323A0);
-extern "C" REX_FUNC(sub_830323A0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[681].fetch_add(1, std::memory_order_relaxed); __imp__sub_830323A0(ctx, base); }
+extern "C" REX_FUNC(sub_830323A0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[680].fetch_add(1, std::memory_order_relaxed); __imp__sub_830323A0(ctx, base); }
 REX_EXTERN(__imp__sub_83033C20);
-extern "C" REX_FUNC(sub_83033C20) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[682].fetch_add(1, std::memory_order_relaxed); __imp__sub_83033C20(ctx, base); }
+extern "C" REX_FUNC(sub_83033C20) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[681].fetch_add(1, std::memory_order_relaxed); __imp__sub_83033C20(ctx, base); }
 REX_EXTERN(__imp__sub_830344F0);
-extern "C" REX_FUNC(sub_830344F0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[683].fetch_add(1, std::memory_order_relaxed); __imp__sub_830344F0(ctx, base); }
+extern "C" REX_FUNC(sub_830344F0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[682].fetch_add(1, std::memory_order_relaxed); __imp__sub_830344F0(ctx, base); }
 REX_EXTERN(__imp__sub_83038ED8);
-extern "C" REX_FUNC(sub_83038ED8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[684].fetch_add(1, std::memory_order_relaxed); __imp__sub_83038ED8(ctx, base); }
+extern "C" REX_FUNC(sub_83038ED8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[683].fetch_add(1, std::memory_order_relaxed); __imp__sub_83038ED8(ctx, base); }
 REX_EXTERN(__imp__sub_83039428);
-extern "C" REX_FUNC(sub_83039428) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[685].fetch_add(1, std::memory_order_relaxed); __imp__sub_83039428(ctx, base); }
+extern "C" REX_FUNC(sub_83039428) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[684].fetch_add(1, std::memory_order_relaxed); __imp__sub_83039428(ctx, base); }
 REX_EXTERN(__imp__sub_8303AF78);
-extern "C" REX_FUNC(sub_8303AF78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[686].fetch_add(1, std::memory_order_relaxed); __imp__sub_8303AF78(ctx, base); }
+extern "C" REX_FUNC(sub_8303AF78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[685].fetch_add(1, std::memory_order_relaxed); __imp__sub_8303AF78(ctx, base); }
 REX_EXTERN(__imp__sub_83044408);
-extern "C" REX_FUNC(sub_83044408) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[687].fetch_add(1, std::memory_order_relaxed); __imp__sub_83044408(ctx, base); }
+extern "C" REX_FUNC(sub_83044408) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[686].fetch_add(1, std::memory_order_relaxed); __imp__sub_83044408(ctx, base); }
 REX_EXTERN(__imp__sub_83045518);
-extern "C" REX_FUNC(sub_83045518) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[688].fetch_add(1, std::memory_order_relaxed); __imp__sub_83045518(ctx, base); }
+extern "C" REX_FUNC(sub_83045518) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[687].fetch_add(1, std::memory_order_relaxed); __imp__sub_83045518(ctx, base); }
 REX_EXTERN(__imp__sub_83046060);
-extern "C" REX_FUNC(sub_83046060) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[689].fetch_add(1, std::memory_order_relaxed); __imp__sub_83046060(ctx, base); }
+extern "C" REX_FUNC(sub_83046060) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[688].fetch_add(1, std::memory_order_relaxed); __imp__sub_83046060(ctx, base); }
 REX_EXTERN(__imp__sub_83046540);
-extern "C" REX_FUNC(sub_83046540) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[690].fetch_add(1, std::memory_order_relaxed); __imp__sub_83046540(ctx, base); }
+extern "C" REX_FUNC(sub_83046540) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[689].fetch_add(1, std::memory_order_relaxed); __imp__sub_83046540(ctx, base); }
 REX_EXTERN(__imp__sub_83046E68);
-extern "C" REX_FUNC(sub_83046E68) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[691].fetch_add(1, std::memory_order_relaxed); __imp__sub_83046E68(ctx, base); }
+extern "C" REX_FUNC(sub_83046E68) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[690].fetch_add(1, std::memory_order_relaxed); __imp__sub_83046E68(ctx, base); }
 REX_EXTERN(__imp__sub_8305A640);
-extern "C" REX_FUNC(sub_8305A640) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[692].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305A640(ctx, base); }
+extern "C" REX_FUNC(sub_8305A640) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[691].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305A640(ctx, base); }
 REX_EXTERN(__imp__sub_8305AAD0);
-extern "C" REX_FUNC(sub_8305AAD0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[693].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305AAD0(ctx, base); }
+extern "C" REX_FUNC(sub_8305AAD0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[692].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305AAD0(ctx, base); }
 REX_EXTERN(__imp__sub_8305ADF0);
-extern "C" REX_FUNC(sub_8305ADF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[694].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305ADF0(ctx, base); }
+extern "C" REX_FUNC(sub_8305ADF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[693].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305ADF0(ctx, base); }
 REX_EXTERN(__imp__sub_8305BE68);
-extern "C" REX_FUNC(sub_8305BE68) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[695].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305BE68(ctx, base); }
+extern "C" REX_FUNC(sub_8305BE68) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[694].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305BE68(ctx, base); }
 REX_EXTERN(__imp__sub_8305C050);
-extern "C" REX_FUNC(sub_8305C050) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[696].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305C050(ctx, base); }
+extern "C" REX_FUNC(sub_8305C050) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[695].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305C050(ctx, base); }
 REX_EXTERN(__imp__sub_8305C240);
-extern "C" REX_FUNC(sub_8305C240) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[697].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305C240(ctx, base); }
+extern "C" REX_FUNC(sub_8305C240) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[696].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305C240(ctx, base); }
 REX_EXTERN(__imp__sub_8305C418);
-extern "C" REX_FUNC(sub_8305C418) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[698].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305C418(ctx, base); }
+extern "C" REX_FUNC(sub_8305C418) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[697].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305C418(ctx, base); }
 REX_EXTERN(__imp__sub_8305C630);
-extern "C" REX_FUNC(sub_8305C630) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[699].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305C630(ctx, base); }
+extern "C" REX_FUNC(sub_8305C630) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[698].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305C630(ctx, base); }
 REX_EXTERN(__imp__sub_8305CA48);
-extern "C" REX_FUNC(sub_8305CA48) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[700].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305CA48(ctx, base); }
+extern "C" REX_FUNC(sub_8305CA48) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[699].fetch_add(1, std::memory_order_relaxed); __imp__sub_8305CA48(ctx, base); }
 REX_EXTERN(__imp__sub_8306FB38);
-extern "C" REX_FUNC(sub_8306FB38) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[701].fetch_add(1, std::memory_order_relaxed); __imp__sub_8306FB38(ctx, base); }
+extern "C" REX_FUNC(sub_8306FB38) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[700].fetch_add(1, std::memory_order_relaxed); __imp__sub_8306FB38(ctx, base); }
 REX_EXTERN(__imp__sub_8306FEC8);
-extern "C" REX_FUNC(sub_8306FEC8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[702].fetch_add(1, std::memory_order_relaxed); __imp__sub_8306FEC8(ctx, base); }
+extern "C" REX_FUNC(sub_8306FEC8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[701].fetch_add(1, std::memory_order_relaxed); __imp__sub_8306FEC8(ctx, base); }
 REX_EXTERN(__imp__sub_83074300);
-extern "C" REX_FUNC(sub_83074300) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[703].fetch_add(1, std::memory_order_relaxed); __imp__sub_83074300(ctx, base); }
+extern "C" REX_FUNC(sub_83074300) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[702].fetch_add(1, std::memory_order_relaxed); __imp__sub_83074300(ctx, base); }
 REX_EXTERN(__imp__sub_83074A00);
-extern "C" REX_FUNC(sub_83074A00) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[704].fetch_add(1, std::memory_order_relaxed); __imp__sub_83074A00(ctx, base); }
+extern "C" REX_FUNC(sub_83074A00) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[703].fetch_add(1, std::memory_order_relaxed); __imp__sub_83074A00(ctx, base); }
 REX_EXTERN(__imp__sub_830755B0);
-extern "C" REX_FUNC(sub_830755B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[705].fetch_add(1, std::memory_order_relaxed); __imp__sub_830755B0(ctx, base); }
+extern "C" REX_FUNC(sub_830755B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[704].fetch_add(1, std::memory_order_relaxed); __imp__sub_830755B0(ctx, base); }
 REX_EXTERN(__imp__sub_830772C0);
-extern "C" REX_FUNC(sub_830772C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[706].fetch_add(1, std::memory_order_relaxed); __imp__sub_830772C0(ctx, base); }
+extern "C" REX_FUNC(sub_830772C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[705].fetch_add(1, std::memory_order_relaxed); __imp__sub_830772C0(ctx, base); }
 REX_EXTERN(__imp__sub_8307A268);
-extern "C" REX_FUNC(sub_8307A268) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[707].fetch_add(1, std::memory_order_relaxed); __imp__sub_8307A268(ctx, base); }
+extern "C" REX_FUNC(sub_8307A268) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[706].fetch_add(1, std::memory_order_relaxed); __imp__sub_8307A268(ctx, base); }
 REX_EXTERN(__imp__sub_8307A5A8);
-extern "C" REX_FUNC(sub_8307A5A8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[708].fetch_add(1, std::memory_order_relaxed); __imp__sub_8307A5A8(ctx, base); }
+extern "C" REX_FUNC(sub_8307A5A8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[707].fetch_add(1, std::memory_order_relaxed); __imp__sub_8307A5A8(ctx, base); }
 REX_EXTERN(__imp__sub_83081598);
-extern "C" REX_FUNC(sub_83081598) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[709].fetch_add(1, std::memory_order_relaxed); __imp__sub_83081598(ctx, base); }
+extern "C" REX_FUNC(sub_83081598) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[708].fetch_add(1, std::memory_order_relaxed); __imp__sub_83081598(ctx, base); }
 REX_EXTERN(__imp__sub_83081A28);
-extern "C" REX_FUNC(sub_83081A28) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[710].fetch_add(1, std::memory_order_relaxed); __imp__sub_83081A28(ctx, base); }
+extern "C" REX_FUNC(sub_83081A28) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[709].fetch_add(1, std::memory_order_relaxed); __imp__sub_83081A28(ctx, base); }
 REX_EXTERN(__imp__sub_83082600);
-extern "C" REX_FUNC(sub_83082600) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[711].fetch_add(1, std::memory_order_relaxed); __imp__sub_83082600(ctx, base); }
+extern "C" REX_FUNC(sub_83082600) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[710].fetch_add(1, std::memory_order_relaxed); __imp__sub_83082600(ctx, base); }
 REX_EXTERN(__imp__sub_830831E0);
-extern "C" REX_FUNC(sub_830831E0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[712].fetch_add(1, std::memory_order_relaxed); __imp__sub_830831E0(ctx, base); }
+extern "C" REX_FUNC(sub_830831E0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[711].fetch_add(1, std::memory_order_relaxed); __imp__sub_830831E0(ctx, base); }
 REX_EXTERN(__imp__sub_83083BE0);
-extern "C" REX_FUNC(sub_83083BE0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[713].fetch_add(1, std::memory_order_relaxed); __imp__sub_83083BE0(ctx, base); }
+extern "C" REX_FUNC(sub_83083BE0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[712].fetch_add(1, std::memory_order_relaxed); __imp__sub_83083BE0(ctx, base); }
 REX_EXTERN(__imp__sub_83083FA8);
-extern "C" REX_FUNC(sub_83083FA8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[714].fetch_add(1, std::memory_order_relaxed); __imp__sub_83083FA8(ctx, base); }
+extern "C" REX_FUNC(sub_83083FA8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[713].fetch_add(1, std::memory_order_relaxed); __imp__sub_83083FA8(ctx, base); }
 REX_EXTERN(__imp__sub_830845E8);
-extern "C" REX_FUNC(sub_830845E8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[715].fetch_add(1, std::memory_order_relaxed); __imp__sub_830845E8(ctx, base); }
+extern "C" REX_FUNC(sub_830845E8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[714].fetch_add(1, std::memory_order_relaxed); __imp__sub_830845E8(ctx, base); }
 REX_EXTERN(__imp__sub_830846E0);
-extern "C" REX_FUNC(sub_830846E0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[716].fetch_add(1, std::memory_order_relaxed); __imp__sub_830846E0(ctx, base); }
+extern "C" REX_FUNC(sub_830846E0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[715].fetch_add(1, std::memory_order_relaxed); __imp__sub_830846E0(ctx, base); }
 REX_EXTERN(__imp__sub_83084C18);
-extern "C" REX_FUNC(sub_83084C18) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[717].fetch_add(1, std::memory_order_relaxed); __imp__sub_83084C18(ctx, base); }
+extern "C" REX_FUNC(sub_83084C18) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[716].fetch_add(1, std::memory_order_relaxed); __imp__sub_83084C18(ctx, base); }
 REX_EXTERN(__imp__sub_83085220);
-extern "C" REX_FUNC(sub_83085220) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[718].fetch_add(1, std::memory_order_relaxed); __imp__sub_83085220(ctx, base); }
+extern "C" REX_FUNC(sub_83085220) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[717].fetch_add(1, std::memory_order_relaxed); __imp__sub_83085220(ctx, base); }
 REX_EXTERN(__imp__sub_83088900);
-extern "C" REX_FUNC(sub_83088900) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[719].fetch_add(1, std::memory_order_relaxed); __imp__sub_83088900(ctx, base); }
+extern "C" REX_FUNC(sub_83088900) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[718].fetch_add(1, std::memory_order_relaxed); __imp__sub_83088900(ctx, base); }
 REX_EXTERN(__imp__sub_83088AC8);
-extern "C" REX_FUNC(sub_83088AC8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[720].fetch_add(1, std::memory_order_relaxed); __imp__sub_83088AC8(ctx, base); }
+extern "C" REX_FUNC(sub_83088AC8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[719].fetch_add(1, std::memory_order_relaxed); __imp__sub_83088AC8(ctx, base); }
 REX_EXTERN(__imp__sub_8308A188);
-extern "C" REX_FUNC(sub_8308A188) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[721].fetch_add(1, std::memory_order_relaxed); __imp__sub_8308A188(ctx, base); }
+extern "C" REX_FUNC(sub_8308A188) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[720].fetch_add(1, std::memory_order_relaxed); __imp__sub_8308A188(ctx, base); }
 REX_EXTERN(__imp__sub_8308E990);
-extern "C" REX_FUNC(sub_8308E990) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[722].fetch_add(1, std::memory_order_relaxed); __imp__sub_8308E990(ctx, base); }
+extern "C" REX_FUNC(sub_8308E990) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[721].fetch_add(1, std::memory_order_relaxed); __imp__sub_8308E990(ctx, base); }
 REX_EXTERN(__imp__sub_83090E00);
-extern "C" REX_FUNC(sub_83090E00) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[723].fetch_add(1, std::memory_order_relaxed); __imp__sub_83090E00(ctx, base); }
+extern "C" REX_FUNC(sub_83090E00) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[722].fetch_add(1, std::memory_order_relaxed); __imp__sub_83090E00(ctx, base); }
 REX_EXTERN(__imp__sub_83091948);
-extern "C" REX_FUNC(sub_83091948) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[724].fetch_add(1, std::memory_order_relaxed); __imp__sub_83091948(ctx, base); }
+extern "C" REX_FUNC(sub_83091948) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[723].fetch_add(1, std::memory_order_relaxed); __imp__sub_83091948(ctx, base); }
 REX_EXTERN(__imp__sub_83091BC8);
-extern "C" REX_FUNC(sub_83091BC8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[725].fetch_add(1, std::memory_order_relaxed); __imp__sub_83091BC8(ctx, base); }
+extern "C" REX_FUNC(sub_83091BC8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[724].fetch_add(1, std::memory_order_relaxed); __imp__sub_83091BC8(ctx, base); }
 REX_EXTERN(__imp__sub_83092410);
-extern "C" REX_FUNC(sub_83092410) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[726].fetch_add(1, std::memory_order_relaxed); __imp__sub_83092410(ctx, base); }
+extern "C" REX_FUNC(sub_83092410) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[725].fetch_add(1, std::memory_order_relaxed); __imp__sub_83092410(ctx, base); }
 REX_EXTERN(__imp__sub_83094728);
-extern "C" REX_FUNC(sub_83094728) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[727].fetch_add(1, std::memory_order_relaxed); __imp__sub_83094728(ctx, base); }
+extern "C" REX_FUNC(sub_83094728) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[726].fetch_add(1, std::memory_order_relaxed); __imp__sub_83094728(ctx, base); }
 REX_EXTERN(__imp__sub_83096FF8);
-extern "C" REX_FUNC(sub_83096FF8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[728].fetch_add(1, std::memory_order_relaxed); __imp__sub_83096FF8(ctx, base); }
+extern "C" REX_FUNC(sub_83096FF8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[727].fetch_add(1, std::memory_order_relaxed); __imp__sub_83096FF8(ctx, base); }
 REX_EXTERN(__imp__sub_83098880);
-extern "C" REX_FUNC(sub_83098880) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[729].fetch_add(1, std::memory_order_relaxed); __imp__sub_83098880(ctx, base); }
+extern "C" REX_FUNC(sub_83098880) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[728].fetch_add(1, std::memory_order_relaxed); __imp__sub_83098880(ctx, base); }
 REX_EXTERN(__imp__sub_8309DD20);
-extern "C" REX_FUNC(sub_8309DD20) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[730].fetch_add(1, std::memory_order_relaxed); __imp__sub_8309DD20(ctx, base); }
+extern "C" REX_FUNC(sub_8309DD20) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[729].fetch_add(1, std::memory_order_relaxed); __imp__sub_8309DD20(ctx, base); }
 REX_EXTERN(__imp__sub_8309F658);
-extern "C" REX_FUNC(sub_8309F658) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[731].fetch_add(1, std::memory_order_relaxed); __imp__sub_8309F658(ctx, base); }
+extern "C" REX_FUNC(sub_8309F658) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[730].fetch_add(1, std::memory_order_relaxed); __imp__sub_8309F658(ctx, base); }
 REX_EXTERN(__imp__sub_8309F7D0);
-extern "C" REX_FUNC(sub_8309F7D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[732].fetch_add(1, std::memory_order_relaxed); __imp__sub_8309F7D0(ctx, base); }
+extern "C" REX_FUNC(sub_8309F7D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[731].fetch_add(1, std::memory_order_relaxed); __imp__sub_8309F7D0(ctx, base); }
 REX_EXTERN(__imp__sub_830A63A8);
-extern "C" REX_FUNC(sub_830A63A8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[733].fetch_add(1, std::memory_order_relaxed); __imp__sub_830A63A8(ctx, base); }
+extern "C" REX_FUNC(sub_830A63A8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[732].fetch_add(1, std::memory_order_relaxed); __imp__sub_830A63A8(ctx, base); }
 REX_EXTERN(__imp__sub_830A7CF0);
-extern "C" REX_FUNC(sub_830A7CF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[734].fetch_add(1, std::memory_order_relaxed); __imp__sub_830A7CF0(ctx, base); }
+extern "C" REX_FUNC(sub_830A7CF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[733].fetch_add(1, std::memory_order_relaxed); __imp__sub_830A7CF0(ctx, base); }
 REX_EXTERN(__imp__sub_830A7FD0);
-extern "C" REX_FUNC(sub_830A7FD0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[735].fetch_add(1, std::memory_order_relaxed); __imp__sub_830A7FD0(ctx, base); }
+extern "C" REX_FUNC(sub_830A7FD0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[734].fetch_add(1, std::memory_order_relaxed); __imp__sub_830A7FD0(ctx, base); }
 REX_EXTERN(__imp__sub_830A8498);
-extern "C" REX_FUNC(sub_830A8498) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[736].fetch_add(1, std::memory_order_relaxed); __imp__sub_830A8498(ctx, base); }
+extern "C" REX_FUNC(sub_830A8498) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[735].fetch_add(1, std::memory_order_relaxed); __imp__sub_830A8498(ctx, base); }
 REX_EXTERN(__imp__sub_830A8C00);
-extern "C" REX_FUNC(sub_830A8C00) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[737].fetch_add(1, std::memory_order_relaxed); __imp__sub_830A8C00(ctx, base); }
+extern "C" REX_FUNC(sub_830A8C00) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[736].fetch_add(1, std::memory_order_relaxed); __imp__sub_830A8C00(ctx, base); }
 REX_EXTERN(__imp__sub_830A9B90);
-extern "C" REX_FUNC(sub_830A9B90) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[738].fetch_add(1, std::memory_order_relaxed); __imp__sub_830A9B90(ctx, base); }
+extern "C" REX_FUNC(sub_830A9B90) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[737].fetch_add(1, std::memory_order_relaxed); __imp__sub_830A9B90(ctx, base); }
 REX_EXTERN(__imp__sub_830AA4C0);
-extern "C" REX_FUNC(sub_830AA4C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[739].fetch_add(1, std::memory_order_relaxed); __imp__sub_830AA4C0(ctx, base); }
+extern "C" REX_FUNC(sub_830AA4C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[738].fetch_add(1, std::memory_order_relaxed); __imp__sub_830AA4C0(ctx, base); }
 REX_EXTERN(__imp__sub_830AB2E8);
-extern "C" REX_FUNC(sub_830AB2E8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[740].fetch_add(1, std::memory_order_relaxed); __imp__sub_830AB2E8(ctx, base); }
+extern "C" REX_FUNC(sub_830AB2E8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[739].fetch_add(1, std::memory_order_relaxed); __imp__sub_830AB2E8(ctx, base); }
 REX_EXTERN(__imp__sub_830AC058);
-extern "C" REX_FUNC(sub_830AC058) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[741].fetch_add(1, std::memory_order_relaxed); __imp__sub_830AC058(ctx, base); }
+extern "C" REX_FUNC(sub_830AC058) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[740].fetch_add(1, std::memory_order_relaxed); __imp__sub_830AC058(ctx, base); }
 REX_EXTERN(__imp__sub_830ACD80);
-extern "C" REX_FUNC(sub_830ACD80) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[742].fetch_add(1, std::memory_order_relaxed); __imp__sub_830ACD80(ctx, base); }
+extern "C" REX_FUNC(sub_830ACD80) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[741].fetch_add(1, std::memory_order_relaxed); __imp__sub_830ACD80(ctx, base); }
 REX_EXTERN(__imp__sub_830AD990);
-extern "C" REX_FUNC(sub_830AD990) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[743].fetch_add(1, std::memory_order_relaxed); __imp__sub_830AD990(ctx, base); }
+extern "C" REX_FUNC(sub_830AD990) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[742].fetch_add(1, std::memory_order_relaxed); __imp__sub_830AD990(ctx, base); }
 REX_EXTERN(__imp__sub_830B5A98);
-extern "C" REX_FUNC(sub_830B5A98) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[744].fetch_add(1, std::memory_order_relaxed); __imp__sub_830B5A98(ctx, base); }
+extern "C" REX_FUNC(sub_830B5A98) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[743].fetch_add(1, std::memory_order_relaxed); __imp__sub_830B5A98(ctx, base); }
 REX_EXTERN(__imp__sub_830B8C38);
-extern "C" REX_FUNC(sub_830B8C38) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[745].fetch_add(1, std::memory_order_relaxed); __imp__sub_830B8C38(ctx, base); }
+extern "C" REX_FUNC(sub_830B8C38) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[744].fetch_add(1, std::memory_order_relaxed); __imp__sub_830B8C38(ctx, base); }
 REX_EXTERN(__imp__sub_830B97E0);
-extern "C" REX_FUNC(sub_830B97E0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[746].fetch_add(1, std::memory_order_relaxed); __imp__sub_830B97E0(ctx, base); }
+extern "C" REX_FUNC(sub_830B97E0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[745].fetch_add(1, std::memory_order_relaxed); __imp__sub_830B97E0(ctx, base); }
 REX_EXTERN(__imp__sub_830CAB50);
-extern "C" REX_FUNC(sub_830CAB50) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[747].fetch_add(1, std::memory_order_relaxed); __imp__sub_830CAB50(ctx, base); }
+extern "C" REX_FUNC(sub_830CAB50) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[746].fetch_add(1, std::memory_order_relaxed); __imp__sub_830CAB50(ctx, base); }
 REX_EXTERN(__imp__sub_830CAE50);
-extern "C" REX_FUNC(sub_830CAE50) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[748].fetch_add(1, std::memory_order_relaxed); __imp__sub_830CAE50(ctx, base); }
+extern "C" REX_FUNC(sub_830CAE50) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[747].fetch_add(1, std::memory_order_relaxed); __imp__sub_830CAE50(ctx, base); }
 REX_EXTERN(__imp__sub_830CD1A8);
-extern "C" REX_FUNC(sub_830CD1A8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[749].fetch_add(1, std::memory_order_relaxed); __imp__sub_830CD1A8(ctx, base); }
+extern "C" REX_FUNC(sub_830CD1A8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[748].fetch_add(1, std::memory_order_relaxed); __imp__sub_830CD1A8(ctx, base); }
 REX_EXTERN(__imp__sub_830D0190);
-extern "C" REX_FUNC(sub_830D0190) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[750].fetch_add(1, std::memory_order_relaxed); __imp__sub_830D0190(ctx, base); }
+extern "C" REX_FUNC(sub_830D0190) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[749].fetch_add(1, std::memory_order_relaxed); __imp__sub_830D0190(ctx, base); }
 REX_EXTERN(__imp__sub_830D0240);
-extern "C" REX_FUNC(sub_830D0240) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[751].fetch_add(1, std::memory_order_relaxed); __imp__sub_830D0240(ctx, base); }
+extern "C" REX_FUNC(sub_830D0240) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[750].fetch_add(1, std::memory_order_relaxed); __imp__sub_830D0240(ctx, base); }
 REX_EXTERN(__imp__sub_830DC3D0);
-extern "C" REX_FUNC(sub_830DC3D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[752].fetch_add(1, std::memory_order_relaxed); __imp__sub_830DC3D0(ctx, base); }
+extern "C" REX_FUNC(sub_830DC3D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[751].fetch_add(1, std::memory_order_relaxed); __imp__sub_830DC3D0(ctx, base); }
 REX_EXTERN(__imp__sub_830DE9D0);
-extern "C" REX_FUNC(sub_830DE9D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[753].fetch_add(1, std::memory_order_relaxed); __imp__sub_830DE9D0(ctx, base); }
+extern "C" REX_FUNC(sub_830DE9D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[752].fetch_add(1, std::memory_order_relaxed); __imp__sub_830DE9D0(ctx, base); }
 REX_EXTERN(__imp__sub_830DF900);
-extern "C" REX_FUNC(sub_830DF900) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[754].fetch_add(1, std::memory_order_relaxed); __imp__sub_830DF900(ctx, base); }
+extern "C" REX_FUNC(sub_830DF900) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[753].fetch_add(1, std::memory_order_relaxed); __imp__sub_830DF900(ctx, base); }
 REX_EXTERN(__imp__sub_8310BB18);
-extern "C" REX_FUNC(sub_8310BB18) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[755].fetch_add(1, std::memory_order_relaxed); __imp__sub_8310BB18(ctx, base); }
+extern "C" REX_FUNC(sub_8310BB18) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[754].fetch_add(1, std::memory_order_relaxed); __imp__sub_8310BB18(ctx, base); }
 REX_EXTERN(__imp__sub_8310C508);
-extern "C" REX_FUNC(sub_8310C508) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[756].fetch_add(1, std::memory_order_relaxed); __imp__sub_8310C508(ctx, base); }
+extern "C" REX_FUNC(sub_8310C508) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[755].fetch_add(1, std::memory_order_relaxed); __imp__sub_8310C508(ctx, base); }
 REX_EXTERN(__imp__sub_8310E738);
-extern "C" REX_FUNC(sub_8310E738) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[757].fetch_add(1, std::memory_order_relaxed); __imp__sub_8310E738(ctx, base); }
+extern "C" REX_FUNC(sub_8310E738) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[756].fetch_add(1, std::memory_order_relaxed); __imp__sub_8310E738(ctx, base); }
 REX_EXTERN(__imp__sub_8310FBF0);
-extern "C" REX_FUNC(sub_8310FBF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[758].fetch_add(1, std::memory_order_relaxed); __imp__sub_8310FBF0(ctx, base); }
+extern "C" REX_FUNC(sub_8310FBF0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[757].fetch_add(1, std::memory_order_relaxed); __imp__sub_8310FBF0(ctx, base); }
 REX_EXTERN(__imp__sub_83110380);
-extern "C" REX_FUNC(sub_83110380) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[759].fetch_add(1, std::memory_order_relaxed); __imp__sub_83110380(ctx, base); }
+extern "C" REX_FUNC(sub_83110380) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[758].fetch_add(1, std::memory_order_relaxed); __imp__sub_83110380(ctx, base); }
 REX_EXTERN(__imp__sub_831111D8);
-extern "C" REX_FUNC(sub_831111D8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[760].fetch_add(1, std::memory_order_relaxed); __imp__sub_831111D8(ctx, base); }
+extern "C" REX_FUNC(sub_831111D8) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[759].fetch_add(1, std::memory_order_relaxed); __imp__sub_831111D8(ctx, base); }
 REX_EXTERN(__imp__sub_83113320);
-extern "C" REX_FUNC(sub_83113320) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[761].fetch_add(1, std::memory_order_relaxed); __imp__sub_83113320(ctx, base); }
+extern "C" REX_FUNC(sub_83113320) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[760].fetch_add(1, std::memory_order_relaxed); __imp__sub_83113320(ctx, base); }
 REX_EXTERN(__imp__sub_83113730);
-extern "C" REX_FUNC(sub_83113730) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[762].fetch_add(1, std::memory_order_relaxed); __imp__sub_83113730(ctx, base); }
+extern "C" REX_FUNC(sub_83113730) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[761].fetch_add(1, std::memory_order_relaxed); __imp__sub_83113730(ctx, base); }
 REX_EXTERN(__imp__sub_83114168);
-extern "C" REX_FUNC(sub_83114168) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[763].fetch_add(1, std::memory_order_relaxed); __imp__sub_83114168(ctx, base); }
+extern "C" REX_FUNC(sub_83114168) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[762].fetch_add(1, std::memory_order_relaxed); __imp__sub_83114168(ctx, base); }
 REX_EXTERN(__imp__sub_8312F930);
-extern "C" REX_FUNC(sub_8312F930) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[764].fetch_add(1, std::memory_order_relaxed); __imp__sub_8312F930(ctx, base); }
+extern "C" REX_FUNC(sub_8312F930) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[763].fetch_add(1, std::memory_order_relaxed); __imp__sub_8312F930(ctx, base); }
 REX_EXTERN(__imp__sub_831304B0);
-extern "C" REX_FUNC(sub_831304B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[765].fetch_add(1, std::memory_order_relaxed); __imp__sub_831304B0(ctx, base); }
+extern "C" REX_FUNC(sub_831304B0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[764].fetch_add(1, std::memory_order_relaxed); __imp__sub_831304B0(ctx, base); }
 REX_EXTERN(__imp__sub_83247348);
-extern "C" REX_FUNC(sub_83247348) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[766].fetch_add(1, std::memory_order_relaxed); __imp__sub_83247348(ctx, base); }
+extern "C" REX_FUNC(sub_83247348) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[765].fetch_add(1, std::memory_order_relaxed); __imp__sub_83247348(ctx, base); }
 REX_EXTERN(__imp__sub_83247798);
-extern "C" REX_FUNC(sub_83247798) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[767].fetch_add(1, std::memory_order_relaxed); __imp__sub_83247798(ctx, base); }
+extern "C" REX_FUNC(sub_83247798) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[766].fetch_add(1, std::memory_order_relaxed); __imp__sub_83247798(ctx, base); }
 REX_EXTERN(__imp__sub_83252240);
-extern "C" REX_FUNC(sub_83252240) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[768].fetch_add(1, std::memory_order_relaxed); __imp__sub_83252240(ctx, base); }
+extern "C" REX_FUNC(sub_83252240) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[767].fetch_add(1, std::memory_order_relaxed); __imp__sub_83252240(ctx, base); }
 REX_EXTERN(__imp__sub_83252B78);
-extern "C" REX_FUNC(sub_83252B78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[769].fetch_add(1, std::memory_order_relaxed); __imp__sub_83252B78(ctx, base); }
+extern "C" REX_FUNC(sub_83252B78) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[768].fetch_add(1, std::memory_order_relaxed); __imp__sub_83252B78(ctx, base); }
 REX_EXTERN(__imp__sub_832576C0);
-extern "C" REX_FUNC(sub_832576C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[770].fetch_add(1, std::memory_order_relaxed); __imp__sub_832576C0(ctx, base); }
+extern "C" REX_FUNC(sub_832576C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[769].fetch_add(1, std::memory_order_relaxed); __imp__sub_832576C0(ctx, base); }
 REX_EXTERN(__imp__sub_832578C0);
-extern "C" REX_FUNC(sub_832578C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[771].fetch_add(1, std::memory_order_relaxed); __imp__sub_832578C0(ctx, base); }
+extern "C" REX_FUNC(sub_832578C0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[770].fetch_add(1, std::memory_order_relaxed); __imp__sub_832578C0(ctx, base); }
 REX_EXTERN(__imp__sub_8325A8D0);
-extern "C" REX_FUNC(sub_8325A8D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[772].fetch_add(1, std::memory_order_relaxed); __imp__sub_8325A8D0(ctx, base); }
+extern "C" REX_FUNC(sub_8325A8D0) { if (REXCVAR_GET(ufc3_cs60_trace)) ufc3_cs60_trace::g_calls[771].fetch_add(1, std::memory_order_relaxed); __imp__sub_8325A8D0(ctx, base); }

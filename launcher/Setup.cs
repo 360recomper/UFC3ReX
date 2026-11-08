@@ -24,6 +24,24 @@ public static class Setup
         if (!File.Exists(Path.Combine(dest, "default.xex"))) throw new InvalidDataException("default.xex missing after copy.");
     }
 
+    /// <summary>The step after the disc files are in place, on builds with the native renderer: builds its shader cache.
+    /// A failure doesn't undo the install (Emulated needs no cache) and comes back as text; only cancelling throws.</summary>
+    public static string FinishImport(string gameData, IProgress<(string, double)> progress, CancellationToken ct)
+    {
+        const string Done = "Game files installed. Open the Play tab to start.";
+        if (!NativeRenderer.Available) return Done;
+        const string Busy = "Building the native renderer's shader cache...";
+        progress.Report((Busy, -1));
+        var r = ShaderCache.Build(gameData, new Progress<string>(_ => progress.Report((Busy, -1))), ct);
+        if (r.Ok) return Done;
+        // An older cache stays usable after a failed rebuild; without one, Play shouldn't try native again.
+        bool fellBack = !ShaderCache.Present && new Toml().GetStr("ufc3_renderer", "native").Equals("native", StringComparison.OrdinalIgnoreCase);
+        if (fellBack) NativeRenderer.UseEmulated();
+        return Done + " The game runs on the Emulated renderer as usual.\n" +
+            "The native renderer's shader cache could not be built" + (fellBack ? ", so the renderer is set back to Emulated" : "") + ":\n" +
+            r.Message + "\nDetails: launcher-native.log";
+    }
+
     static void CheckSpace(string dest, Xgd xgd)
     {
         try

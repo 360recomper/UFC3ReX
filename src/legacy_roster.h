@@ -202,6 +202,20 @@ constexpr uint32_t kHeightFtInOff = 0x48;
 // him (Liddell stayed 85 while mod-added Classic Tito showed 90). Copy the mod's
 // ratings (and height) onto the save's record, but only where the mod changed them
 // from the disc, so everything else in the save's record stays. Returns true if it did.
+// <mods>/DAT/chara/rating_resets.txt: disc IDs whose old override must leave the save (build_roster_mod.py).
+inline const std::unordered_set<uint32_t>& ResetIds() {
+  static const std::unordered_set<uint32_t> ids = [] {
+    std::unordered_set<uint32_t> out;
+    std::string mods = rex::cvar::GetFlagByName("mods_root");
+    if (mods.empty()) return out;
+    std::ifstream f(rex::to_path(mods) / "DAT" / "chara" / "rating_resets.txt");
+    uint32_t id;
+    while (f >> id) out.insert(id);
+    return out;
+  }();
+  return ids;
+}
+
 inline bool ApplyModRatings(uint8_t* rec, uint32_t id) {
   static std::unordered_map<uint32_t, const uint8_t*> mod, disc;
   static bool loaded = false;
@@ -228,6 +242,17 @@ inline bool ApplyModRatings(uint8_t* rec, uint32_t id) {
     height = true;
   }
   if (std::memcmp(mr + kRatingsOff, dr + kRatingsOff, kRatingsLen) == 0 && mr[kOverallOff] == dr[kOverallOff]) {
+    // No override for him any more: an earlier pack's override that SyncForSave wrote into the save would
+    // otherwise stay for good (Chuck 1/332/1122 kept the old boost after it moved to Classic Chuck, 2026-11-07).
+    // Only fighters the pack lists in DAT/chara/rating_resets.txt: DLC fighters (1300+) get their real ratings
+    // from the DLC into the save, so a blanket reset put them back to the disc's placeholders.
+    if (ResetIds().count(id) &&
+        (std::memcmp(rec + kRatingsOff, dr + kRatingsOff, kRatingsLen) != 0 || rec[kOverallOff] != dr[kOverallOff])) {
+      std::memcpy(rec + kRatingsOff, dr + kRatingsOff, kRatingsLen);
+      rec[kOverallOff] = dr[kOverallOff];
+      REXLOG_INFO("[roster] {}: ratings back to the disc's (an old override was in the save)", id);
+      return true;
+    }
     return height;
   }
   if (std::memcmp(rec + kRatingsOff, mr + kRatingsOff, kRatingsLen) == 0 && rec[kOverallOff] == mr[kOverallOff]) {
@@ -490,7 +515,9 @@ extern "C" REX_FUNC(sub_82EDA818) {
 
 // Also the --ufc3_trace_imports save-request log (import_trace.h).
 extern "C" REX_FUNC(sub_82EE9128) {
+  ufc3_attire::CaptionsForSave(base, false);  // the save gets the record's own trunks colours (attire_pick.h)
   ufc3_legacy_roster::SyncForSave(base);
+  ufc3_attire::CaptionsForSave(base, true);
   uint32_t r4 = ctx.r4.u32, r5 = ctx.r5.u32, lr = static_cast<uint32_t>(ctx.lr);
   __imp__sub_82EE9128(ctx, base);
   if (REXCVAR_GET(ufc3_trace_imports)) {

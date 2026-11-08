@@ -5,6 +5,9 @@
 #include "ufc3_app.h"
 #include "first_run_save.h"
 #include "import_trace.h"
+#include "bare_knuckle.h"
+#include "blood.h"
+#include "cuts.h"
 #include "perf_probe.h"
 #include "cutscene_60.h"
 #include "legacy_roster.h"
@@ -16,7 +19,9 @@
 #include "dlc_sound_banks.h"
 #include "position_guard.h"
 #include "acce_trace.h"
+#include "flare_trace.h"
 #include "skip_trace.h"
 #include "steady_skin_light.h"
+#include "venues.h"
 
 REX_DEFINE_APP(ufc3, Ufc3App::Create)

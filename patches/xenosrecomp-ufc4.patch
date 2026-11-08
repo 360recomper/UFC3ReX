@@ -1,0 +1,60 @@
+diff --git a/XenosRecomp/shader_common.h b/XenosRecomp/shader_common.h
+index 1fcaf77..6d8a497 100644
+--- a/XenosRecomp/shader_common.h
++++ b/XenosRecomp/shader_common.h
+@@ -147,6 +147,12 @@ float4 tfetch2D(uint resourceDescriptorIndex, uint samplerDescriptorIndex, float
+     return texture.SVR_SAMPLE(g_SamplerDescriptorHeap[samplerDescriptorIndex], texCoord + offset / getTexture2DDimensions(texture));
+ }
+ 
++float4 tfetch2DLod0(uint resourceDescriptorIndex, uint samplerDescriptorIndex, float2 texCoord, float2 offset)
++{
++    Texture2D<float4> texture = g_Texture2DDescriptorHeap[resourceDescriptorIndex];
++    return texture.SampleLevel(g_SamplerDescriptorHeap[samplerDescriptorIndex], texCoord + offset / getTexture2DDimensions(texture), 0);
++}
++
+ float2 getWeights2D(uint resourceDescriptorIndex, uint samplerDescriptorIndex, float2 texCoord, float2 offset)
+ {
+     Texture2D<float4> texture = g_Texture2DDescriptorHeap[resourceDescriptorIndex];
+@@ -250,6 +256,11 @@ float4 tfetch3D(uint resourceDescriptorIndex, uint samplerDescriptorIndex, float
+     return g_Texture3DDescriptorHeap[resourceDescriptorIndex].SVR_SAMPLE(g_SamplerDescriptorHeap[samplerDescriptorIndex], texCoord);
+ }
+ 
++float4 tfetch3DLod0(uint resourceDescriptorIndex, uint samplerDescriptorIndex, float3 texCoord)
++{
++    return g_Texture3DDescriptorHeap[resourceDescriptorIndex].SampleLevel(g_SamplerDescriptorHeap[samplerDescriptorIndex], texCoord, 0);
++}
++
+ struct CubeMapData
+ {
+ 	#ifdef REBLUE_RECOMP
+@@ -268,6 +279,11 @@ float4 tfetchCube(uint resourceDescriptorIndex, uint samplerDescriptorIndex, flo
+     return g_TextureCubeDescriptorHeap[resourceDescriptorIndex].SVR_SAMPLE(g_SamplerDescriptorHeap[samplerDescriptorIndex], cubeMapData.cubeMapDirections[texCoord.z]);
+ }
+ 
++float4 tfetchCubeLod0(uint resourceDescriptorIndex, uint samplerDescriptorIndex, float3 texCoord, inout CubeMapData cubeMapData)
++{
++    return g_TextureCubeDescriptorHeap[resourceDescriptorIndex].SampleLevel(g_SamplerDescriptorHeap[samplerDescriptorIndex], cubeMapData.cubeMapDirections[texCoord.z], 0);
++}
++
+ #ifdef REBLUE_RECOMP
+ // DEC3N normal decode; IA binds as R32_UINT so lane .x carries the raw bits (asuint recovers them).
+ float4 tfetchR11G11B10(float4 value)
+diff --git a/XenosRecomp/shader_recompiler.cpp b/XenosRecomp/shader_recompiler.cpp
+index aed4633..5f6da48 100644
+--- a/XenosRecomp/shader_recompiler.cpp
++++ b/XenosRecomp/shader_recompiler.cpp
+@@ -632,6 +632,14 @@ void ShaderRecompiler::recompile(const TextureFetchInstruction& instr, bool bicu
+ 
+     out += dimension;
+ 
++    // The instruction asks for a fixed level, not the computed one (a mip chain built in place reads
++    // level 0 with a half-size quad; Sample would pick level 1, the one being written).
++    if (instr.opcode == FetchOpcode::TextureFetch && !instr.useCompLod && !instr.useRegLod &&
++        instr.lodBias == 0 && instr.dimension != TextureDimension::Texture1D)
++    {
++        out += "Lod0";
++    }
++
+ #ifdef UNLEASHED_RECOMP
+     if (bicubic)
+         out += "Bicubic";

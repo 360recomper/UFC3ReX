@@ -103,3 +103,90 @@ registers = ["r11"]
 address = 0x82A70414
 name = "ufc3_pride_fold"
 registers = ["r11"]
+
+# Bare-knuckle hands (src/bare_knuckle.h): after each "li r5,1" in the glove
+# visibility function sub_82B58FC0.
+[[midasm_hook]]
+address = 0x82B590EC
+name = "ufc3_bk_glove"
+registers = ["r5"]
+
+[[midasm_hook]]
+address = 0x82B59108
+name = "ufc3_bk_tape"
+registers = ["r5"]
+
+[[midasm_hook]]
+address = 0x82B59188
+name = "ufc3_bk_glove"
+registers = ["r5"]
+
+[[midasm_hook]]
+address = 0x82B591A4
+name = "ufc3_bk_tape"
+registers = ["r5"]
+
+# Blood amount (src/blood.h): face zone level f1 for region r31 of damage
+# object r26, after the step event, before the -0.1 and SetLevel.
+[[midasm_hook]]
+address = 0x82C72670
+name = "ufc3_blood_level"
+registers = ["f1", "r26", "r31"]
+
+# Cuts and bleeding (src/cuts.h): chance after the slot's function, forehead meter
+# factor, points per interval, bleed delay, per-hit bleed factor.
+[[midasm_hook]]
+address = 0x82C70658
+name = "ufc3_cut_hit"
+registers = ["r4", "r5", "r21"]
+
+[[midasm_hook]]
+address = 0x82C70660
+name = "ufc3_cut_chance"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82C73088
+name = "ufc3_cut_meter"
+registers = ["f0", "r30"]
+
+[[midasm_hook]]
+address = 0x82C7237C
+name = "ufc3_bleed_step"
+registers = ["r3"]
+
+[[midasm_hook]]
+address = 0x82C6F748
+name = "ufc3_bleed_delay"
+registers = ["r3", "r30"]
+
+[[midasm_hook]]
+address = 0x82C72080
+name = "ufc3_bleed_hit"
+registers = ["f0"]
+
+[[midasm_hook]]
+address = 0x82C72ECC
+name = "ufc3_doctor_roll"
+registers = ["f0", "f13", "r24"]
+
+[[midasm_hook]]
+address = 0x82C72F6C
+name = "ufc3_doctor_stop"
+registers = ["r11"]
+
+# Attires past the second (src/attire_pick.h): stateless per loader call.
+[[midasm_hook]]
+address = 0x82BD0C30
+name = "ufc3_attire_load_begin"
+registers = ["r31"]
+
+[[midasm_hook]]
+address = 0x82BD0CA4
+name = "ufc3_attire_load_skip"
+registers = ["r7", "r8", "r31"]
+
+[[midasm_hook]]
+address = 0x82BD0CC0
+name = "ufc3_attire_load_rename"
+registers = ["r29", "r30", "r31"]

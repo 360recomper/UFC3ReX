@@ -33,6 +33,9 @@
 #include <rex/logging.h>
 #include <rex/ppc/func.h>
 
+#include "adaptive_step.h"
+#include "blood_light.h"
+#include "blood_wet.h"
 #include "no_bloom.h"
 #include "no_dof.h"
 
@@ -42,6 +45,10 @@ REXCVAR_DEFINE_BOOL(ufc3_cs60_trace, false, "ufc3",
                     "Log call counts of candidate 30 fps stepping functions per scene");
 
 #include "cs60_trace.h"
+
+#if defined(UFC3_NATIVE_HOOKS)
+#include "ufc_frame_diag.h"
+#endif
 
 REX_EXTERN(__imp__sub_82748D38);  // frame-rate global: halve 60 -> 30, 50 -> 25
 REX_EXTERN(__imp__sub_82748DC8);  // frame-rate global: restore 30 -> 60, 25 -> 50
@@ -95,6 +102,7 @@ inline void SetHalved(bool halved, uint32_t lr) {
 extern "C" REX_FUNC(sub_82748D38) {
   ufc3_cs60::SetHalved(true, ctx.lr);
   if (!REXCVAR_GET(ufc3_cutscene_60)) {
+    auto block_lock = ufc3_adaptive::LockForSetter();
     __imp__sub_82748D38(ctx, base);
     return;
   }
@@ -107,6 +115,7 @@ extern "C" REX_FUNC(sub_82748D38) {
 
 extern "C" REX_FUNC(sub_82748DC8) {
   ufc3_cs60::SetHalved(false, ctx.lr);
+  auto block_lock = ufc3_adaptive::LockForSetter();
   __imp__sub_82748DC8(ctx, base);
 }
 
@@ -118,5 +127,13 @@ extern "C" REX_FUNC(sub_8273BBE0) {
       ufc3_cs60::DumpLocked("tick");
     }
   }
+  ufc3_adaptive::Frame(base, ctx.r3.u32, REXCVAR_GET(ufc3_cutscene_60) && ufc3_cs60::g_halved);
+#if defined(UFC3_NATIVE_HOOKS)
+  const uint64_t perf_start = bd::gpu::SvrDiagTicks();
+#endif
   __imp__sub_8273BBE0(ctx, base);
+#if defined(UFC3_NATIVE_HOOKS)
+  if (bd::gpu::g_svr_perf_on.load(std::memory_order_relaxed))
+    bd::gpu::SvrPerfRenderFn(bd::gpu::SvrDiagTicks() - perf_start);
+#endif
 }
