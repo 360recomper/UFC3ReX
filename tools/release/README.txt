@@ -41,6 +41,10 @@ GRAPHICS
   than the window (for example 1x on a 1080p or bigger screen); a picture as big as the window is
   not changed.
 
+WHAT'S NEW IN 1.1.5
+  - New launcher look: dark black and red theme with a sidebar, new banner, dark dialogs. Every button and
+    setting works as before. The game itself is unchanged from 1.1.4.
+
 WHAT'S NEW IN 1.1.4
   - Fix: with the mod pack, the game crashed on SELECT FIGHTER (Lightweight) when hovering Roger Huerta (GitHub #5).
     Fighters ported from UFC 2009 with a separate foot mesh now get it drawn with the right skin shader; Huerta keeps
