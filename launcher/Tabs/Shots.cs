@@ -16,6 +16,7 @@ static class Shots
     [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out RECT r);
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int cmd);
+    [DllImport("user32.dll")] static extern bool RedrawWindow(IntPtr hwnd, IntPtr rc, IntPtr rgn, uint flags);
     static readonly Point Off = new(-32000, -32000);
 
     public static int Run(string dir, int pct)
@@ -39,6 +40,8 @@ static class Shots
     {
         string P(string name) => Path.Combine(dir, $"{pct}-{++n:00}-{name}.png");
         var nav = form.Nav;
+        await Settle(); await Settle();
+        Capture(form, Path.Combine(Path.GetTempPath(), "ufc3-shot-warmup.png")); await Settle();   // throw-away: the first PrintWindow of a window comes back unpainted
         for (int i = 0; i < form.Tabs.Count; i++)
         {
             var t = form.Tabs[i];
@@ -105,7 +108,7 @@ static class Shots
 
     static void Capture(Form f, string path)
     {
-        for (int i = 0; i < 3; i++) { f.Invalidate(true); f.Update(); f.Refresh(); Application.DoEvents(); System.Threading.Thread.Sleep(150); Application.DoEvents(); }
+        for (int i = 0; i < 3; i++) { f.Invalidate(true); f.Update(); f.Refresh(); RedrawWindow(f.Handle, IntPtr.Zero, IntPtr.Zero, 0x0001 | 0x0004 | 0x0080 | 0x0100 | 0x0400); Application.DoEvents(); System.Threading.Thread.Sleep(150); Application.DoEvents(); }
         GetWindowRect(f.Handle, out var w);
         using var full = new Bitmap(w.R - w.L, w.B - w.T, PixelFormat.Format32bppArgb);
         using (var g = Graphics.FromImage(full))
