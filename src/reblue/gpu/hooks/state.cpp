@@ -8,11 +8,17 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  */
+#include <atomic>
 #include <cstring>
 #include <mutex>
+#include <string>
 #include <unordered_set>
 
+#include <fmt/format.h>
+#include <rex/cvar.h>
 #include <rex/hook.h>
+#include <rex/logging.h>
+#include <rex/ppc/context.h>
 #include <rex/runtime.h>
 #include <rex/types.h>
 
@@ -383,6 +389,44 @@ void UfcMirrorRestore(uint32_t vs, uint32_t ps, uint32_t decl) {
 }
 #endif
 
+REXCVAR_DEFINE_BOOL(ufc3_knuckle_trace, false, "ufc3",
+                    "Debug (GitHub #5): log the knuckle zone move per mesh, and guest SetTexture calls with a "
+                    "texture pointer that is no guest object (command record + parameter block; binds nothing)");
+
+namespace {
+inline u32 TraceLoad32(u8 *base, u32 addr) {
+  u32 v;
+  std::memcpy(&v, base + addr, 4);
+  return _byteswap_ulong(v);
+}
+// A D3D texture header lives in the guest heaps (0x40000000 up), 4-byte aligned.
+inline bool BadTexturePointer(u32 t) { return t && (t < 0x40000000u || (t & 3)); }
+void TraceBadTexture(PPCContext &ctx, u8 *base) {
+  static std::atomic<int> logged{0};
+  if (logged.fetch_add(1) >= 40) return;
+  const u32 rec = ctx.r29.u32;
+  REXLOG_INFO("[knuckle] bad SetTexture: sampler {} texture {:08X} lr {:08X} r1 {:08X} r26 {:08X} r27 {:08X} r28 {:08X} "
+              "r29 {:08X} r30 {:08X} r31 {:08X}",
+              ctx.r4.u32, ctx.r5.u32, static_cast<u32>(ctx.lr), ctx.r1.u32, ctx.r26.u32, ctx.r27.u32, ctx.r28.u32, rec,
+              ctx.r30.u32, ctx.r31.u32);
+  const u32 lr = static_cast<u32>(ctx.lr);
+  if (lr >= 0x8278B588u && lr < 0x8278C300u && rec >= 0x40000000u)  // the state-block walk: r29 = the record
+    for (int row = -16; row < 4; ++row) {
+      const u32 a = rec + row * 16;
+      REXLOG_INFO("[knuckle]   rec {:08X}: {:08X} {:08X} {:08X} {:08X}{}", a, TraceLoad32(base, a), TraceLoad32(base, a + 4),
+                  TraceLoad32(base, a + 8), TraceLoad32(base, a + 12), row == 0 ? "  <-" : "");
+    }
+  // The current parameter block (r26, 16 bytes per slot; the texture is slot * 16), and its record header before it.
+  const u32 blk = ctx.r26.u32;
+  if (logged.load() <= 2 && blk >= 0x40000000u)
+    for (int slot = -1; slot < 40; ++slot) {
+      const u32 a = blk + slot * 16;
+      REXLOG_INFO("[knuckle]   blk {:08X} slot {:2}: {:08X} {:08X} {:08X} {:08X}", a, slot, TraceLoad32(base, a),
+                  TraceLoad32(base, a + 4), TraceLoad32(base, a + 8), TraceLoad32(base, a + 12));
+    }
+}
+}  // namespace
+
 #if defined(SVR_NATIVE_RENDERER)
 // SvR: the game's setters run first and keep the device state; the renderer observes.
 SVR_HOOK_AFTER(D3DDevice_SetRenderTarget, D3DDevice_SetRenderTarget_hook);
@@ -391,7 +435,22 @@ SVR_HOOK_AFTER(D3DDevice_SetScissorRect, D3DDevice_SetScissorRect_hook);
 SVR_HOOK_AFTER(D3DDevice_SetVertexShader, D3DDevice_SetVertexShader_hook);
 SVR_HOOK_AFTER(D3DDevice_SetPixelShader, D3DDevice_SetPixelShader_hook);
 SVR_HOOK_AFTER(D3DDevice_SetVertexDeclaration, D3DDevice_SetVertexDeclaration_hook);
-SVR_HOOK_AFTER(D3DDevice_SetTexture, D3DDevice_SetTexture_hook);
+REX_EXTERN(__imp__D3DDevice_SetTexture);
+extern "C" REX_FUNC(D3DDevice_SetTexture) {
+  if (REXCVAR_GET(ufc3_knuckle_trace) && BadTexturePointer(ctx.r5.u32)) {
+    TraceBadTexture(ctx, base);
+    ctx.r5.u64 = 0;
+  }
+  SVR_HOOK_EMULATED(D3DDevice_SetTexture)
+  PPCContext svr_args;
+  ::svr::CopyArgs(svr_args, ctx);
+  {
+    bd::gpu::SvrZone svr_zone(bd::gpu::SvrZoneId::kGuestD3D);
+    __imp__D3DDevice_SetTexture(ctx, base);
+  }
+  bd::gpu::SvrZone svr_zone(bd::gpu::SvrZoneId::kHookState);
+  rex::ppc::HostToGuestFunction<D3DDevice_SetTexture_hook>(svr_args, base);
+}
 #else
 REX_HOOK(D3DDevice_SetViewport, D3DDevice_SetViewport_hook);
 REX_HOOK(D3DDevice_SetRenderTarget, D3DDevice_SetRenderTarget_hook);

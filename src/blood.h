@@ -98,6 +98,7 @@ REXCVAR_DEFINE_STRING(ufc3_knuckle_rect, "", "ufc3",
                       "Debug: u0,v0,u1,v1 skin-UV rect used for both knuckle rects instead of the hands (empty = hands)");
 REXCVAR_DEFINE_STRING(ufc3_knuckle_zone, "all", "ufc3",
                       "Debug: draw hand meshes with the liquid-map skin shader (zone 2): off, all or one fighter id, e.g. 091");
+REXCVAR_DECLARE(bool, ufc3_knuckle_trace);  // src/reblue/gpu/hooks/state.cpp
 
 namespace ufc3_blood {
 
@@ -731,6 +732,33 @@ inline void ZoneHands(uint8_t* base, uint32_t m) {
     if (in_run && pick)
       for (uint32_t j = k; j < end; ++j) Store32(base, mesh(j) + 144, 2), ++moved;
     k = end;
+  }
+  // GitHub #5: meshes with the same material (+0x78, "handfeet") share one parameter block, laid out
+  // for one technique (= zone). Ports have separate hand and foot meshes; a foot left in zone 4 drew
+  // HandsFeet with the Upper block and bound a float as its cube-light texture (Roger Huerta
+  // crashed, Danzig got a wrong bind that happened to be harmless). So the rest of a moved
+  // material moves too, as the foot does on disc bodies, where it is the hand's own mesh.
+  uint32_t tags[8];
+  int ntags = 0;
+  for (uint32_t k = 0; k < mc && ntags < 8; ++k) {
+    uint32_t h = mesh(k), tag = Load32(base, h + 0x78);
+    if (IsSkin(base, h) && Load32(base, h + 144) == 2 && is_hand(h) && std::find(tags, tags + ntags, tag) == tags + ntags)
+      tags[ntags++] = tag;
+  }
+  for (uint32_t k = 0; k < mc && ntags; ++k) {
+    uint32_t h = mesh(k);
+    if (IsSkin(base, h) && Load32(base, h + 144) == 4 && std::find(tags, tags + ntags, Load32(base, h + 0x78)) != tags + ntags)
+      Store32(base, h + 144, 2), ++moved;
+  }
+  if (REXCVAR_GET(ufc3_knuckle_trace)) {
+    REXLOG_INFO("[knuckle] model {:08X}-{:08X} fighter '{}': {} meshes", m, m + 8 + size, id, mc);
+    for (uint32_t k = 0; k < mc; ++k) {
+      uint32_t h = mesh(k);
+      REXLOG_INFO("[knuckle]   {:2} hdr {:08X} {:.16} zone {} v {} tag {} group {} w {} mats {} first '{:.16}' hand {}", k, h,
+                  reinterpret_cast<const char*>(base + h + 124), Load32(base, h + 144), Load32(base, h),
+                  Load32(base, h + 0x78), Load32(base, h + 0x60), Load32(base, h + 0x5C), Load32(base, h + 148),
+                  has_textures(h) ? "g_mDiffusePrm" : "-", IsSkin(base, h) && is_hand(h) ? 1 : 0);
+    }
   }
   if (hands && REXCVAR_GET(ufc3_blood_trace))
     REXLOG_INFO("[blood] model {:08X} fighter '{}': {} of {} meshes are hands, {} meshes moved to zone 2", m, id, hands, mc,
