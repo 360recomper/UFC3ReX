@@ -41,6 +41,10 @@ GRAPHICS
   than the window (for example 1x on a 1080p or bigger screen); a picture as big as the window is
   not changed.
 
+WHAT'S NEW IN 1.1.3
+  - Fix: menus drawn as plain white boxes on some PCs (seen on Windows setups whose Direct3D 12 can't create
+    texture sizes that aren't a multiple of 4). Those menu textures are now converted on load, so menus look normal.
+
 WHAT'S NEW IN 1.1.2
   - Fix: with the mod pack, L3 on SELECT FIGHTER now cycles attires out of the box (the attire
     picker setting was off by default, so it only worked if you turned it on yourself).
