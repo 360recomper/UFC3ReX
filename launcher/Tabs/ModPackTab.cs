@@ -7,7 +7,7 @@ public class ModPackTab : ILauncherTab
     readonly Label picked = Ui.Text("");
     readonly Label status = Ui.Text("");
     readonly Button install, uninstall, choose;
-    readonly ProgressBar bar = new() { Width = 540, Height = 16, Visible = false };
+    readonly ProgressBar bar = new AccentBar { Width = Theme.S(540), Height = Theme.S(16), Visible = false };
     string? zip;
     bool busy;
 
@@ -16,15 +16,15 @@ public class ModPackTab : ILauncherTab
 
     public ModPackTab()
     {
-        col.Controls.Add(Ui.Text("Mod pack", true));
+        col.Controls.Add(Ui.Head("Mod pack"));
         col.Controls.Add(Ui.Text("Download the mod pack (.zip) from the link you were given, then choose it here or drag the zip onto this window. " +
             "Don't unzip it. Installing adds its files to the game's mods folder; Uninstall removes exactly those files again."));
-        col.Controls.Add(Ui.Text("Installed", true));
+        col.Controls.Add(Ui.Head("Installed"));
         col.Controls.Add(installed);
         uninstall = Ui.Btn("Uninstall", (_, _) => Uninstall(), 120);
         col.Controls.Add(uninstall);
 
-        col.Controls.Add(Ui.Text("Install a pack", true));
+        col.Controls.Add(Ui.Head("Install a pack"));
         choose = Ui.Btn("Choose mod pack zip...", (_, _) => Choose(), 200);
         col.Controls.Add(choose);
         col.Controls.Add(picked);
@@ -83,7 +83,7 @@ public class ModPackTab : ILauncherTab
     {
         if (zip == null || busy || GameOpen()) return;
         var prev = ModPack.Installed();
-        if (prev != null && MessageBox.Show($"\"{prev.Name}\" is installed. It is removed first and replaced by this pack. Continue?",
+        if (prev != null && DarkBox.Show($"\"{prev.Name}\" is installed. It is removed first and replaced by this pack. Continue?",
                 "UFC3 Launcher", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
         await Run(() => ModPack.Install(zip, Progress, CancellationToken.None));
     }

@@ -341,7 +341,7 @@ public sealed class PlayBanner : Control
     }
 }
 
-/// <summary>The launcher's own message box, in the theme. Same arguments and results as MessageBox.Show.</summary>
+/// <summary>The launcher's own message box, in the theme. Same arguments and results as DarkBox.Show.</summary>
 public static class DarkBox
 {
     public static DialogResult Show(string text, string caption, MessageBoxButtons buttons = MessageBoxButtons.OK, MessageBoxIcon icon = MessageBoxIcon.None)

@@ -15,12 +15,17 @@ static class Program
     ///   --shader-cache [--dest dir]   headless shader cache build, the step after --setup-iso (tests); log in setup-cli-log.txt
     ///   --native               start the game as Play does with Renderer = Native: builds a missing shader cache, starts on
     ///                          emulated if that fails or after exit code 3 (tests)
+    ///   --screenshot-all &lt;dir&gt; [percent]   write a PNG of every tab at that display scale, never starts the game (tests)
     ///   --dlss5-setup &lt;dir&gt;  fill dlss5\ from a folder holding the DLSS 5 stack; log in dlss5-cli-log.txt
     /// </summary>
     [STAThread]
     static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        int si = Array.IndexOf(args, "--screenshot-all");
+        int? simPct = si >= 0 && si + 2 < args.Length && int.TryParse(args[si + 2], out var sp) ? sp : null;
+        Theme.Init(simPct);
+        if (si >= 0 && si + 1 < args.Length) { Environment.Exit(Shots.Run(args[si + 1], simPct ?? 100)); return; }
         if (args.Contains("--setup-iso") || args.Contains("--setup-dlc") || args.Contains("--shader-cache")) { Environment.Exit(SetupCli(args)); return; }
         if (args.Length == 2 && args[0] == "--dlss5-setup") { Environment.Exit(Dlss5.SetupCli(args[1])); return; }
         if (args.Length == 2 && (args[0] == "--modpack-install" || args[0] == "--modpack-uninstall"))
@@ -29,7 +34,7 @@ static class Program
         if (args.Contains("--dlss5"))
         {
             try { var start = DateTime.Now.AddSeconds(-2); Dlss5.WaitAndKeepSettings(Dlss5.Launch(Config.Load()), start); }
-            catch (Exception ex) { MessageBox.Show("Could not start with DLSS 5: " + ex.Message, "UFC3 Launcher"); }
+            catch (Exception ex) { DarkBox.Show("Could not start with DLSS 5: " + ex.Message, "UFC3 Launcher"); }
             return;
         }
         if (args.Contains("--native"))
@@ -39,7 +44,7 @@ static class Program
                 if (NativeRenderer.PrepareCache() != null) NativeRenderer.LaunchEmulated(); // reason is in launcher-native.log
                 else NativeRenderer.WaitAndFallBack(NativeRenderer.Launch());
             }
-            catch (Exception ex) { MessageBox.Show("Could not start the game: " + ex.Message, "UFC3 Launcher"); }
+            catch (Exception ex) { DarkBox.Show("Could not start the game: " + ex.Message, "UFC3 Launcher"); }
             return;
         }
         Application.Run(new MainForm(args.Contains("--updated")));
@@ -92,14 +97,25 @@ static class Program
 class MainForm : Form
 {
     readonly List<ILauncherTab> tabs = new();
-    readonly TabControl tc = new() { Dock = DockStyle.Fill };
+    readonly NavHost tc = new();
+    readonly bool preview;
 
-    public MainForm(bool updated = false)
+    /// <summary>--screenshot-all: never take the focus from the user.</summary>
+    protected override bool ShowWithoutActivation => preview;
+
+    internal NavHost Nav => tc;
+    internal IReadOnlyList<ILauncherTab> Tabs => tabs;
+
+    /// <param name="preview">--screenshot-all: no update check, no messages.</param>
+    public MainForm(bool updated = false, bool preview = false)
     {
+        this.preview = preview;
         Text = "UFC Undisputed 3 Recomp - Launcher " + AppVersion.Launcher;
-        ClientSize = new Size(640, 640);
+        AutoScaleMode = AutoScaleMode.None;   // sizes are scaled by Theme.S
+        Theme.DarkWindow(this);
+        ClientSize = new Size(Theme.S(940), Theme.S(680));
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(540, 420);
+        MinimumSize = SizeFromClientSize(new Size(Theme.S(780), Theme.S(540)));
 
         var play = new PlayTab();
         var setup = new SetupTab();
@@ -107,21 +123,34 @@ class MainForm : Form
         const string Title = "UFC Undisputed 3 Recomp - Launcher " + AppVersion.Launcher;
         play.UpdateFound += r => Text = $"{Title}  (update available: v{r.Version}, see Play)";
         play.Updated += () => Text = Title;
-        foreach (var t in tabs)
-        {
-            var page = new TabPage(t.Title);
-            t.View.Dock = DockStyle.Fill;
-            page.Controls.Add(t.View);
-            tc.TabPages.Add(page);
-        }
+        foreach (var t in tabs) tc.Add(t.Title, Glyph(t.Title), t.View, t is not PlayTab);
         tc.SelectedIndexChanged += (_, _) => tabs[tc.SelectedIndex].OnShown();
         Controls.Add(tc);
+        Theme.DarkScroll(this);
         Shown += (_, _) =>
         {
-            if (!Paths.AssetsReady) tc.SelectedIndex = tabs.IndexOf(setup);
-            tabs[tc.SelectedIndex].OnShown();
-            if (updated) MessageBox.Show($"Updated to v{AppVersion.Installed}. The replaced files are in the update-backups folder.", "UFC3 Launcher");
+            if (preview) return;
+            tc.SelectedIndex = Paths.AssetsReady ? 0 : tabs.IndexOf(setup);   // raises OnShown
+            if (updated) DarkBox.Show($"Updated to v{AppVersion.Installed}. The replaced files are in the update-backups folder.", "UFC3 Launcher");
             else if (Paths.IsInstalled && Config.Load().CheckForUpdates) _ = play.CheckForUpdates(false);
         };
+    }
+
+    /// <summary>Sidebar icons (Segoe Fluent Icons / MDL2 Assets, both ship with Windows).</summary>
+    static string Glyph(string title) => title switch
+    {
+        "Play" => "",
+        "Setup" => "",
+        "Settings" => "",
+        "Mod Pack" => "",
+        "DLSS 5" => "",
+        _ => "",
+    };
+
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (keyData == (Keys.Control | Keys.Tab)) { tc.Next(1); return true; }
+        if (keyData == (Keys.Control | Keys.Shift | Keys.Tab)) { tc.Next(-1); return true; }
+        return base.ProcessCmdKey(ref msg, keyData);
     }
 }

@@ -4,18 +4,18 @@ namespace UFC3Launcher.Tabs;
 
 public class PlayTab : ILauncherTab
 {
-    readonly Panel root = new() { Dock = DockStyle.Fill };
+    readonly Panel root = new() { Dock = DockStyle.Fill, BackColor = Theme.Bg };
     readonly Button play;
-    readonly CheckBox dlss = new() { Text = "Start with DLSS 5", AutoSize = true };
+    readonly CheckBox dlss = new DarkCheck { Text = "Start with DLSS 5", AutoSize = true };
     readonly Label dlssHint = Ui.Text("");
     readonly Label info = Ui.Text("");
-    readonly Label header = Ui.Text("", true);
-    readonly FlowLayoutPanel updRow = new() { AutoSize = true, WrapContents = false, Visible = false };
+    readonly Label header = Ui.Text("");
+    readonly FlowLayoutPanel updRow = new() { AutoSize = true, WrapContents = false, Margin = new Padding(0, Theme.S(8), 0, 0), Visible = false };
     readonly Label updText = Ui.Text("", true, 330);
     readonly Button updBtn;
-    readonly ProgressBar updBar = new() { Width = 540, Height = 14, Maximum = 1000, Visible = false };
+    readonly ProgressBar updBar = new AccentBar { Width = Theme.S(540), Height = Theme.S(14), Maximum = 1000, Visible = false };
     readonly Label updInfo = Ui.Text("");
-    readonly CheckBox checkUpd = new() { Text = "Check for updates when the launcher starts", AutoSize = true };
+    readonly CheckBox checkUpd = new DarkCheck { Text = "Check for updates when the launcher starts", AutoSize = true };
     Updater.Release? latest;
     bool loading, updating, buildingCache;
 
@@ -32,7 +32,7 @@ public class PlayTab : ILauncherTab
         var col = Ui.Column();
         header.Text = "UFC Undisputed 3 Recomp   v" + AppVersion.Installed + "  (launcher " + AppVersion.Launcher + ")";
         col.Controls.Add(header);
-        play = new Button { Text = "Play", Width = 220, Height = 54, Font = new Font(SystemFonts.DefaultFont.FontFamily, 14, FontStyle.Bold), Margin = new Padding(0, 12, 0, 12) };
+        play = new FlatButton { Kind = BtnKind.Play, Text = "Play", Width = Theme.S(320), Height = Theme.S(82), Margin = new Padding(-Theme.S(7), Theme.S(6), 0, Theme.S(8)) };
         play.Click += (_, _) => Launch();
         col.Controls.Add(play);
         dlss.CheckedChanged += (_, _) => { if (!loading) { var c = Config.Load(); c.PlayWithDlss5 = dlss.Checked; c.Save(); UpdatePlayText(); } };
@@ -40,16 +40,28 @@ public class PlayTab : ILauncherTab
         col.Controls.Add(dlssHint);
         col.Controls.Add(info);
         checkUpd.CheckedChanged += (_, _) => { if (!loading) { var c = Config.Load(); c.CheckForUpdates = checkUpd.Checked; c.Save(); } };
-        updBtn = Ui.AutoBtn("Update", async (_, _) => await RunUpdate());
+        updBtn = Ui.Primary(Ui.AutoBtn("Update", async (_, _) => await RunUpdate()));
+        updText.ForeColor = Theme.AccentText; updText.Margin = new Padding(0, Theme.S(13), Theme.S(10), 0);
         updRow.Controls.AddRange(new Control[] { updText, updBtn, Ui.AutoBtn("What's new", (_, _) => OpenUrl(latest?.Page ?? Updater.ReleasesPage)) });
         col.Controls.Add(updRow);
         col.Controls.Add(updBar);
         col.Controls.Add(updInfo);
+        col.Controls.Add(Ui.Head("Updates"));
         col.Controls.Add(checkUpd);
         col.Controls.Add(Ui.AutoBtn("Check for updates now", async (_, _) => await CheckForUpdates(true)));
         col.Controls.Add(Ui.Text("Normal Play uses your settings in ufc3.toml (F4 in game). DLSS 5 runs use the same exe, settings and saves, " +
             "with Vulkan and the DLSS 5 resolution scale for that run only."));
         root.Controls.Add(col);
+        root.Controls.Add(new PlayBanner());
+    }
+
+    /// <summary>--screenshot-all: show the update row and bar as during a download.</summary>
+    internal void PreviewUpdate()
+    {
+        updText.Text = $"Update available: v9.9 (you have v{AppVersion.Installed})";
+        updRow.Visible = true;
+        updBar.Visible = true; updBar.Value = 420;
+        updInfo.Text = "Downloading UFC3-Recomp-v9.9.zip...";
     }
 
     public void OnShown()
@@ -100,7 +112,7 @@ public class PlayTab : ILauncherTab
         var rel = latest;
         if (rel?.Game == null) return;
         if (Updater.GameRunning()) { updInfo.Text = "Close the game first."; return; }
-        if (MessageBox.Show($"Download v{rel.Version} ({rel.Game.Size / 1048576.0:0} MB) and replace the changed program files?\n\n" +
+        if (DarkBox.Show($"Download v{rel.Version} ({rel.Game.Size / 1048576.0:0} MB) and replace the changed program files?\n\n" +
                 "Your settings (ufc3.toml), saves, mods and game files are not touched. Replaced files are kept in update-backups.",
                 "Update", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
         updating = true; updBtn.Enabled = play.Enabled = false; updBar.Visible = true; updBar.Value = 0;
@@ -146,7 +158,7 @@ public class PlayTab : ILauncherTab
                     info.Text = "";
                     if (failed != null)
                     {
-                        MessageBox.Show(NativeRenderer.FallbackText(failed), "UFC3 Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        DarkBox.Show(NativeRenderer.FallbackText(failed), "UFC3 Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         NativeRenderer.LaunchEmulated();
                         Application.Exit();
                         return;

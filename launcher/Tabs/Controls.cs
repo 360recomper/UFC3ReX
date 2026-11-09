@@ -418,3 +418,20 @@ public static class DarkTip
         return t;
     }
 }
+
+/// <summary>Label that stays readable when disabled (the stock one paints grey on grey).</summary>
+public class DimLabel : Label
+{
+    public DimLabel()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        UseMnemonic = false;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.Clear(Theme.BackOf(this));
+        var fl = TextFormatFlags.NoPrefix | TextFormatFlags.VerticalCenter;
+        TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, Enabled ? ForeColor : Theme.Faint, fl);
+    }
+}

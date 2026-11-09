@@ -7,15 +7,15 @@ public class SettingsTab : ILauncherTab
     readonly Label status = Ui.Text("");
     bool loading, buildingCache;
 
-    readonly ComboBox scale = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
-    readonly ComboBox backend = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
-    readonly ComboBox renderer = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
+    readonly DarkCombo scale = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = Theme.S(260) };
+    readonly DarkCombo backend = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = Theme.S(260) };
+    readonly DarkCombo renderer = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = Theme.S(260) };
     readonly Label rendererHint = Ui.Text("");
     // NR-12c: graphics card. gpuValues[i] is what item i writes ("" = Automatic).
-    readonly ComboBox gpu = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
+    readonly DarkCombo gpu = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = Theme.S(260) };
     readonly List<string> gpuValues = new();
-    readonly NumericUpDown cap = new() { Minimum = 0, Maximum = 4096, Width = 80 };
-    readonly Dictionary<string, CheckBox> checks = new();
+    readonly NumericUpDown cap = new() { Minimum = 0, Maximum = 4096, Width = Theme.S(80), BackColor = Theme.Surface, ForeColor = Theme.Ink };
+    readonly Dictionary<string, DarkCheck> checks = new();
     // merge7: the Gameplay rows only work with the mod pack (its marker file in the mods folder).
     readonly List<Control> packOnly = new();
     readonly Label packHint = Ui.Text("");
@@ -28,14 +28,14 @@ public class SettingsTab : ILauncherTab
     static readonly string[] GlovedValues = { "1.0", "1.5", "2.0", "4.0" };
     static readonly string[] BkNames = { "Stock", "Some", "More", "Lots", "Most" };
     static readonly string[] BkValues = { "1.0", "1.5", "2.0", "3.0", "5.0" };
-    readonly Dictionary<string, (ComboBox box, string[] values, string def)> choices = new();
+    readonly Dictionary<string, (DarkCombo box, string[] values, string def)> choices = new();
 
     public SettingsTab()
     {
-        col.Controls.Add(Ui.Text("Game settings", true));
+        col.Controls.Add(Ui.Head("Game settings"));
         col.Controls.Add(Ui.Text("Saved to ufc3.toml next to the game. Other settings in that file are left alone. Takes effect the next time you start the game."));
 
-        col.Controls.Add(Ui.Text("Graphics", true));
+        col.Controls.Add(Ui.Head("Graphics"));
         scale.Items.AddRange(ScaleNames);
         scale.SelectedIndexChanged += (_, _) => { if (!loading) Write(t => t.Set("resolution_scale", scale.SelectedIndex + 1)); };
         col.Controls.Add(Row("Render scale", scale));
@@ -53,7 +53,7 @@ public class SettingsTab : ILauncherTab
             if (renderer.SelectedIndex == 1) _ = BuildCacheIfNeeded();
         };
         col.Controls.Add(Row("Renderer", renderer));
-        rendererHint.ForeColor = SystemColors.GrayText;
+        rendererHint.ForeColor = Theme.Muted;
         col.Controls.Add(rendererHint);
         gpu.SelectedIndexChanged += (_, _) =>
         {
@@ -63,13 +63,13 @@ public class SettingsTab : ILauncherTab
         };
         col.Controls.Add(Row("Graphics card", gpu));
         var gpuHint = Ui.Text("Native renderer only. Automatic picks the dedicated (high-performance) graphics card on laptops that also have built-in graphics. Pick a card by name to override it; Windows' own per-app graphics setting can override Automatic too.");
-        gpuHint.ForeColor = SystemColors.GrayText;
+        gpuHint.ForeColor = Theme.Muted;
         col.Controls.Add(gpuHint);
         // NR-13: present pass (ufc3_native_upscale); a picture as big as the window is never changed.
         col.Controls.Add(Choice("ufc3_native_upscale", "Upscaling", new[] { "Bilinear (default)", "AMD FSR 1" },
             new[] { "bilinear", "auto" }, "bilinear", raw: false));
         var upscaleHint = Ui.Text("Native renderer only. Bilinear is the plain scaling. AMD FSR 1 is optional: when the render scale gives a picture smaller than the window (1x on a 1080p or bigger screen), it scales it up sharper than bilinear. A picture as big as the window or bigger looks the same either way.");
-        upscaleHint.ForeColor = SystemColors.GrayText;
+        upscaleHint.ForeColor = Theme.Muted;
         col.Controls.Add(upscaleHint);
         col.Controls.Add(Check("fullscreen", "Fullscreen (borderless)", true, "Also F11 in game. Alt-tab is instant: the picture stays while another window has focus."));
         col.Controls.Add(Check("pause_on_focus_loss", "Mute while in the background", false, "Sound stops while another window has focus. The game keeps running either way; the controller is ignored until you come back."));
@@ -78,9 +78,9 @@ public class SettingsTab : ILauncherTab
         col.Controls.Add(Check("ufc3_cutscene_60", "60 fps walkouts, intros and replays", false, "The game runs these at 30 fps. Experimental."));
         col.Controls.Add(Check("ufc3_steady_skin_light", "Steady skin lighting", true, "Skin keeps its stand-up tone on clinch and ground cameras. Off = the original game's darker top-down look."));
 
-        col.Controls.Add(Ui.Text("Gameplay", true));
+        col.Controls.Add(Ui.Head("Gameplay"));
         col.Controls.Add(Ui.Text("These change how fights play out, not only how they look. Stock = the original game."));
-        packHint.ForeColor = SystemColors.GrayText;
+        packHint.ForeColor = Theme.Muted;
         col.Controls.Add(packHint);
         packOnly.Add(Choice("ufc3_cut_rate", "Gloved cuts", GlovedNames, GlovedValues, "1.5", raw: true));
         packOnly.Add(Choice("ufc3_bleed_rate", "Gloved bleeding", GlovedNames, GlovedValues, "1.5", raw: true));
@@ -88,11 +88,11 @@ public class SettingsTab : ILauncherTab
         packOnly.Add(Choice("ufc3_bk_bleed_rate", "Bare knuckle bleeding", BkNames, BkValues, "1.5", raw: true));
         foreach (var c in packOnly) col.Controls.Add(c);
 
-        col.Controls.Add(Ui.Text("Unlocks", true));
+        col.Controls.Add(Ui.Head("Unlocks"));
         col.Controls.Add(Check("ufc3_unlock_all", "Unlock everything", false, "Every fighter and unlock-shop item counts as unlocked. Your save is not changed."));
         col.Controls.Add(Check("ufc3_free_unlock_points", "Unlock shop items are free", false, "Buying does not spend unlock points."));
 
-        col.Controls.Add(Ui.Text("Mods", true));
+        col.Controls.Add(Ui.Head("Mods"));
         cap.ValueChanged += (_, _) => { if (!loading) Write(t => t.Set("ufc3_roster_cap", (int)cap.Value)); };
         col.Controls.Add(Row("Roster size (fighters)", cap));
         col.Controls.Add(Ui.Text("Room for added fighters. Default 1024; 0 = off (the game's own 600)."));
@@ -121,7 +121,7 @@ public class SettingsTab : ILauncherTab
         else
         {
             NativeRenderer.UseEmulated();
-            MessageBox.Show(NativeRenderer.FallbackText(r.Message), "UFC3 Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            DarkBox.Show(NativeRenderer.FallbackText(r.Message), "UFC3 Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             status.Text = "Renderer set back to Emulated: the shader cache could not be built.";
         }
         var keep = status.Text;
@@ -151,27 +151,27 @@ public class SettingsTab : ILauncherTab
 
     static Control Row(string label, Control c)
     {
-        var p = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0, 2, 0, 2) };
-        p.Controls.Add(new Label { Text = label, AutoSize = false, Width = 150, Height = 24, TextAlign = ContentAlignment.MiddleLeft });
+        var p = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0, Theme.S(2), 0, Theme.S(2)) };
+        p.Controls.Add(new DimLabel { Text = label, AutoSize = false, Width = Theme.S(150), Height = Theme.S(24), ForeColor = Theme.Ink, TextAlign = ContentAlignment.MiddleLeft });
         p.Controls.Add(c);
         return p;
     }
 
     Control Check(string key, string text, bool def, string hint)
     {
-        var cb = new CheckBox { Text = text, AutoSize = true, Tag = def };
+        var cb = new DarkCheck { Text = text, AutoSize = true, Tag = def };
         cb.CheckedChanged += (_, _) => { if (!loading) Write(t => t.Set(key, cb.Checked)); };
         checks[key] = cb;
-        var p = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0, 2, 0, 4) };
+        var p = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0, Theme.S(2), 0, Theme.S(4)) };
         p.Controls.Add(cb);
-        var h = Ui.Text(hint); h.ForeColor = SystemColors.GrayText; h.Margin = new Padding(20, 0, 0, 0);
+        var h = Ui.Text(hint); h.ForeColor = Theme.Muted; h.Margin = new Padding(Theme.S(24), 0, 0, 0);
         p.Controls.Add(h);
         return p;
     }
 
     Control Choice(string key, string label, string[] names, string[] values, string def, bool raw)
     {
-        var box = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
+        var box = new DarkCombo { DropDownStyle = ComboBoxStyle.DropDownList, Width = Theme.S(260) };
         box.Items.AddRange(names);
         box.SelectedIndexChanged += (_, _) =>
         {

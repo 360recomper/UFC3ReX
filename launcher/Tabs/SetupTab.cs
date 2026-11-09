@@ -6,7 +6,7 @@ public class SetupTab : ILauncherTab
     readonly FlowLayoutPanel col = Ui.Column();
     readonly Label state = Ui.Text("", true);
     readonly Label status = Ui.Text("");
-    readonly ProgressBar bar = new() { Width = 540, Height = 18, Maximum = 1000 };
+    readonly ProgressBar bar = new AccentBar { Width = Theme.S(540), Height = Theme.S(18), Maximum = 1000 };
     readonly Label current = Ui.Text("");
     readonly Button isoBtn, dlcFolderBtn, dlcFileBtn, cancelBtn;
     CancellationTokenSource? cts;
@@ -16,15 +16,15 @@ public class SetupTab : ILauncherTab
 
     public SetupTab()
     {
-        col.Controls.Add(Ui.Text("Game files", true));
+        col.Controls.Add(Ui.Head("Game files"));
         col.Controls.Add(state);
         col.Controls.Add(Ui.Text("Choose your own UFC Undisputed 3 (USA) disc image (.iso). The launcher checks that it is the right game, " +
             "then copies the game files (about 6.5 GB) into the assets folder next to this launcher. This takes a few minutes. " +
             "If you cancel, run it again to continue where it stopped."));
-        isoBtn = Ui.Btn("Choose game ISO...", async (_, _) => await RunIso(), 170);
+        isoBtn = Ui.Primary(Ui.Btn("Choose game ISO...", async (_, _) => await RunIso(), 170));
         col.Controls.Add(isoBtn);
 
-        col.Controls.Add(Ui.Text("DLC (optional)", true));
+        col.Controls.Add(Ui.Head("DLC (optional)"));
         col.Controls.Add(Ui.Text("Choose a folder or a zip of your Xbox 360 DLC packages. They are unpacked into the userdata folder, " +
             "and the game then lists them as purchased."));
         var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
@@ -39,6 +39,14 @@ public class SetupTab : ILauncherTab
         col.Controls.Add(current);
         col.Controls.Add(cancelBtn);
         col.Controls.Add(status);
+    }
+
+    /// <summary>--screenshot-all: the page as during an ISO import.</summary>
+    internal void PreviewBusy()
+    {
+        isoBtn.Enabled = dlcFolderBtn.Enabled = dlcFileBtn.Enabled = false; cancelBtn.Enabled = true;
+        bar.Value = 420; current.Text = @"42%  pac\_startup_usa.pac";
+        status.Text = "Copying game files...";
     }
 
     public void OnShown() =>

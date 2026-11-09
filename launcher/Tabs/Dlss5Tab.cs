@@ -2,21 +2,21 @@ namespace UFC3Launcher.Tabs;
 
 public class Dlss5Tab : ILauncherTab
 {
-    readonly Panel root = new() { Dock = DockStyle.Fill };
+    readonly Panel root = new() { Dock = DockStyle.Fill, BackColor = Theme.Bg };
     readonly Label status = Ui.Text("", true);
     readonly Button setupBtn, playBtn, folderBtn;
-    readonly NumericUpDown scale = new() { Minimum = 1, Maximum = 4, Width = 50, Margin = new Padding(0, 6, 8, 4) };
-    readonly CheckBox fps = new() { Text = "Show ReShade's fps counter", AutoSize = true };
-    readonly CheckBox livePanel = new() { Text = "Advanced: live DLSS 5 panel on F10 in game (opens OptiScaler's own window over the game while it is open)", AutoSize = true, MaximumSize = new Size(560, 0) };
-    readonly ComboBox style = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 130, Margin = new Padding(0, 4, 8, 4) };
-    readonly ComboBox preset = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 130, Margin = new Padding(0, 4, 8, 4) };
+    readonly NumericUpDown scale = new() { Minimum = 1, Maximum = 4, Width = Theme.S(50), Margin = new Padding(0, Theme.S(6), Theme.S(8), Theme.S(4)), BackColor = Theme.Surface, ForeColor = Theme.Ink };
+    readonly CheckBox fps = new DarkCheck { Text = "Show ReShade's fps counter", AutoSize = true };
+    readonly CheckBox livePanel = new DarkCheck { Text = "Advanced: live DLSS 5 panel on F10 in game (opens OptiScaler's own window over the game while it is open)", AutoSize = true, MaximumSize = new Size(Theme.S(560), 0) };
+    readonly DarkCombo style = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = Theme.S(130), Margin = new Padding(0, Theme.S(4), Theme.S(8), Theme.S(4)) };
+    readonly DarkCombo preset = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = Theme.S(130), Margin = new Padding(0, Theme.S(4), Theme.S(8), Theme.S(4)) };
     readonly List<(Dlss5Look.Setting s, NumericUpDown n)> sliders = new();
     readonly Label lookState = Ui.Text("");
     readonly FlowLayoutPanel lookBox = new() { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0) };
     readonly TextBox output = new()
     {
-        Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = true, Width = 560, Height = 130,
-        Font = new Font(FontFamily.GenericMonospace, 8.5f), BackColor = SystemColors.Window, Visible = false,
+        Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = true, Width = Theme.S(560), Height = Theme.S(130),
+        Font = Theme.Mono(9f), BackColor = Theme.Surface, ForeColor = Theme.Ink, BorderStyle = BorderStyle.FixedSingle, Visible = false,
     };
     readonly FlowLayoutPanel addonRow = new() { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
     readonly Button dlBtn, zipBtn;
@@ -43,7 +43,7 @@ public class Dlss5Tab : ILauncherTab
         addonRow.Controls.AddRange(new Control[] { dlBtn, zipBtn, Ui.AutoBtn("Release page", (_, _) => Open(Updater.ReleasesPage)) });
         col.Controls.Add(addonRow);
 
-        col.Controls.Add(Ui.Text("Settings", true));
+        col.Controls.Add(Ui.Head("Settings"));
         var scaleRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
         scaleRow.Controls.Add(Ui.Text("Resolution scale for DLSS 5 runs:", false, 220));
         scaleRow.Controls.Add(scale);
@@ -55,7 +55,7 @@ public class Dlss5Tab : ILauncherTab
         livePanel.CheckedChanged += (_, _) => { if (!loading) { var c = Config.Load(); c.Dlss5LivePanel = livePanel.Checked; c.Save(); } };
 
         // The look: OptiScaler.ini [DlssNr], written on every change (that file is where it is saved).
-        col.Controls.Add(Ui.Text("DLSS 5 look", true));
+        col.Controls.Add(Ui.Head("DLSS 5 look"));
         col.Controls.Add(Ui.Text("Set it here: saved as soon as you change it, used every time the game starts with DLSS 5. " +
             "Nothing to save in game."));
         style.Items.AddRange(Dlss5Look.Styles);
@@ -66,7 +66,7 @@ public class Dlss5Tab : ILauncherTab
         preset.SelectedIndexChanged += (_, _) => { if (!loading) Save(() => Dlss5Look.SetPreset(preset.SelectedIndex)); };
         foreach (var st in Dlss5Look.Sliders)
         {
-            var n = new NumericUpDown { Minimum = st.Min, Maximum = st.Max, Increment = st.Step, DecimalPlaces = st.Step >= 1 ? 0 : 2, Width = 70, Margin = new Padding(0, 4, 8, 4) };
+            var n = new NumericUpDown { Minimum = st.Min, Maximum = st.Max, Increment = st.Step, DecimalPlaces = st.Step >= 1 ? 0 : 2, Width = Theme.S(70), Margin = new Padding(0, Theme.S(4), Theme.S(8), Theme.S(4)), BackColor = Theme.Surface, ForeColor = Theme.Ink };
             var cur = st;
             n.ValueChanged += (_, _) => { if (!loading) Save(() => Dlss5Look.Set(cur, n.Value)); };
             sliders.Add((st, n));
@@ -101,7 +101,7 @@ public class Dlss5Tab : ILauncherTab
     {
         var r = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
         r.Controls.Add(Ui.Text(label, false, 130));
-        r.Controls[0].MinimumSize = new Size(130, 0);
+        r.Controls[0].MinimumSize = new Size(Theme.S(130), 0);
         r.Controls.Add(input);
         if (help != "") r.Controls.Add(Ui.Text(help, false, 330));
         return r;
@@ -126,7 +126,7 @@ public class Dlss5Tab : ILauncherTab
 
     void Reset()
     {
-        if (MessageBox.Show("Put the DLSS 5 look, ReShade preset and F10 panel settings back to how they were after setup?",
+        if (DarkBox.Show("Put the DLSS 5 look, ReShade preset and F10 panel settings back to how they were after setup?",
                 "UFC3 Launcher", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
         try { Dlss5.ResetSettings(); loading = true; LoadLook(); loading = false; lookState.Text = "Reset to the setup defaults."; }
         catch (Exception ex) { lookState.Text = "Could not reset: " + ex.Message; }
