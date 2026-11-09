@@ -127,7 +127,7 @@ public class Dlss5Tab : ILauncherTab
     void Reset()
     {
         if (DarkBox.Show("Put the DLSS 5 look, ReShade preset and F10 panel settings back to how they were after setup?",
-                "UFC3 Launcher", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
+                "Undisputed Launcher", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
         try { Dlss5.ResetSettings(); loading = true; LoadLook(); loading = false; lookState.Text = "Reset to the setup defaults."; }
         catch (Exception ex) { lookState.Text = "Could not reset: " + ex.Message; }
     }

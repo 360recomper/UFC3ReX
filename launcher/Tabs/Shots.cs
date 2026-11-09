@@ -63,12 +63,12 @@ static class Shots
         var boxes = new (string Name, string Text, string Caption, MessageBoxButtons B, MessageBoxIcon I)[]
         {
             ("box-update", "Download v9.9 (212 MB) and replace the changed program files?\n\nYour settings (ufc3.toml), saves, mods and game files are not touched. Replaced files are kept in update-backups.", "Update", MessageBoxButtons.OKCancel, MessageBoxIcon.Question),
-            ("box-cache-fallback", NativeRenderer.FallbackText("the shader cache could not be built."), "UFC3 Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning),
-            ("box-replace-pack", "\"Sample pack\" is installed. It is removed first and replaced by this pack. Continue?", "UFC3 Launcher", MessageBoxButtons.YesNo, MessageBoxIcon.None),
-            ("box-dlss-reset", "Put the DLSS 5 look, ReShade preset and F10 panel settings back to how they were after setup?", "UFC3 Launcher", MessageBoxButtons.OKCancel, MessageBoxIcon.None),
-            ("box-updated", "Updated to v9.9. The replaced files are in the update-backups folder.", "UFC3 Launcher", MessageBoxButtons.OK, MessageBoxIcon.None),
+            ("box-cache-fallback", NativeRenderer.FallbackText("the shader cache could not be built."), "Undisputed Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning),
+            ("box-replace-pack", "\"Sample pack\" is installed. It is removed first and replaced by this pack. Continue?", "Undisputed Launcher", MessageBoxButtons.YesNo, MessageBoxIcon.None),
+            ("box-dlss-reset", "Put the DLSS 5 look, ReShade preset and F10 panel settings back to how they were after setup?", "Undisputed Launcher", MessageBoxButtons.OKCancel, MessageBoxIcon.None),
+            ("box-updated", "Updated to v9.9. The replaced files are in the update-backups folder.", "Undisputed Launcher", MessageBoxButtons.OK, MessageBoxIcon.None),
             ("box-long", string.Join("\n\n", Enumerable.Range(1, 14).Select(k => $"Line {k}: a long message to check the scrolling message box with many lines of text in it.")),
-                "UFC3 Launcher", MessageBoxButtons.OK, MessageBoxIcon.Information),
+                "Undisputed Launcher", MessageBoxButtons.OK, MessageBoxIcon.Information),
         };
         foreach (var b in boxes)
         {

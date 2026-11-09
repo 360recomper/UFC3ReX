@@ -102,16 +102,10 @@ public sealed class NavHost : Control
             using var sf = new StringFormat(StringFormat.GenericTypographic);
             var f1 = Theme.Heavy(11.5f, FontStyle.Italic);
             var f1b = Theme.Heavy(8.5f, FontStyle.Italic);
-            var f2 = Theme.Font(8f, true);
             float tx = Theme.S(64);
             using (var b = new LinearGradientBrush(new RectangleF(tx, Theme.S(26), Theme.S(140), Theme.S(24)), Color.White, Theme.AccentText, LinearGradientMode.Vertical))
-                g.DrawString("UFC 3", f1, b, tx, Theme.S(27), sf);
-            using (var b = new SolidBrush(Theme.AccentText)) g.DrawString("UNDISPUTED", f1b, b, tx, Theme.S(47), sf);
-            using (var b = new SolidBrush(Theme.Muted))
-            {
-                var w1 = g.MeasureString("UNDISPUTED", f1b, PointF.Empty, sf).Width;
-                g.DrawString("RECOMP", f2, b, tx + w1 + Theme.S(6), Theme.S(49), sf);
-            }
+                g.DrawString("UNDISPUTED", f1, b, tx, Theme.S(27), sf);
+            using (var b = new SolidBrush(Theme.AccentText)) g.DrawString("ULTIMATE EDITION", f1b, b, tx, Theme.S(47), sf);
             using (var p = new Pen(Theme.Line)) g.DrawLine(p, Width - 1, 0, Width - 1, Height);
             using (var lb = new LinearGradientBrush(new RectangleF(Theme.S(16), Theme.S(86), Width - Theme.S(32), 1), Color.FromArgb(150, Theme.Gold), Color.FromArgb(0, Theme.Gold), LinearGradientMode.Horizontal))
                 g.FillRectangle(lb, Theme.S(16), Theme.S(86), Width - Theme.S(32), Math.Max(1, Theme.S(1)));
@@ -352,10 +346,10 @@ public sealed class PlayBanner : Control
         float x0 = Theme.S(28), y0t = Theme.S(30);
         using var sf = new StringFormat(StringFormat.GenericTypographic);
         using var t1 = new GraphicsPath();
-        t1.AddString("UFC UNDISPUTED", fam, (int)FontStyle.Italic, em, new PointF(x0, y0t), sf);
+        t1.AddString("UNDISPUTED", fam, (int)FontStyle.Italic, em, new PointF(x0, y0t - Theme.S(8)), sf);
         var b1 = t1.GetBounds();
         using var t2 = new GraphicsPath();
-        t2.AddString("3", fam, (int)FontStyle.Italic, emN, new PointF(b1.Right + Theme.S(12), y0t - (emN - em) * 0.62f), sf);
+        t2.AddString("ULTIMATE EDITION", fam, (int)FontStyle.Italic, emN * 0.45f, new PointF(x0 + Theme.S(4), b1.Bottom + Theme.S(4)), sf);
         var b2 = t2.GetBounds();
 
         for (int i = 6; i >= 1; i--)   // red glow behind the letters

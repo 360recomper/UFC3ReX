@@ -34,7 +34,7 @@ static class Program
         if (args.Contains("--dlss5"))
         {
             try { var start = DateTime.Now.AddSeconds(-2); Dlss5.WaitAndKeepSettings(Dlss5.Launch(Config.Load()), start); }
-            catch (Exception ex) { DarkBox.Show("Could not start with DLSS 5: " + ex.Message, "UFC3 Launcher"); }
+            catch (Exception ex) { DarkBox.Show("Could not start with DLSS 5: " + ex.Message, "Undisputed Launcher"); }
             return;
         }
         if (args.Contains("--native"))
@@ -44,7 +44,7 @@ static class Program
                 if (NativeRenderer.PrepareCache() != null) NativeRenderer.LaunchEmulated(); // reason is in launcher-native.log
                 else NativeRenderer.WaitAndFallBack(NativeRenderer.Launch());
             }
-            catch (Exception ex) { DarkBox.Show("Could not start the game: " + ex.Message, "UFC3 Launcher"); }
+            catch (Exception ex) { DarkBox.Show("Could not start the game: " + ex.Message, "Undisputed Launcher"); }
             return;
         }
         Application.Run(new MainForm(args.Contains("--updated")));
@@ -110,7 +110,7 @@ class MainForm : Form
     public MainForm(bool updated = false, bool preview = false)
     {
         this.preview = preview;
-        Text = "UFC Undisputed 3 Recomp - Launcher " + AppVersion.Launcher;
+        Text = "Undisputed Ultimate Edition - Launcher " + AppVersion.Launcher;
         AutoScaleMode = AutoScaleMode.None;   // sizes are scaled by Theme.S
         Theme.DarkWindow(this);
         ClientSize = new Size(Theme.S(940), Theme.S(680));
@@ -120,7 +120,7 @@ class MainForm : Form
         var play = new PlayTab();
         var setup = new SetupTab();
         tabs.AddRange(new ILauncherTab[] { play, setup, new SettingsTab(), new ModPackTab(), new Dlss5Tab() });
-        const string Title = "UFC Undisputed 3 Recomp - Launcher " + AppVersion.Launcher;
+        const string Title = "Undisputed Ultimate Edition - Launcher " + AppVersion.Launcher;
         play.UpdateFound += r => Text = $"{Title}  (update available: v{r.Version}, see Play)";
         play.Updated += () => Text = Title;
         foreach (var t in tabs) tc.Add(t.Title, Glyph(t.Title), t.View, t is not PlayTab);
@@ -131,7 +131,7 @@ class MainForm : Form
         {
             if (preview) return;
             tc.SelectedIndex = Paths.AssetsReady ? 0 : tabs.IndexOf(setup);   // raises OnShown
-            if (updated) DarkBox.Show($"Updated to v{AppVersion.Installed}. The replaced files are in the update-backups folder.", "UFC3 Launcher");
+            if (updated) DarkBox.Show($"Updated to v{AppVersion.Installed}. The replaced files are in the update-backups folder.", "Undisputed Launcher");
             else if (Paths.IsInstalled && Config.Load().CheckForUpdates) _ = play.CheckForUpdates(false);
         };
     }

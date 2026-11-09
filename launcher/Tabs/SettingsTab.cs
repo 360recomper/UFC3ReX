@@ -121,7 +121,7 @@ public class SettingsTab : ILauncherTab
         else
         {
             NativeRenderer.UseEmulated();
-            DarkBox.Show(NativeRenderer.FallbackText(r.Message), "UFC3 Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            DarkBox.Show(NativeRenderer.FallbackText(r.Message), "Undisputed Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             status.Text = "Renderer set back to Emulated: the shader cache could not be built.";
         }
         var keep = status.Text;

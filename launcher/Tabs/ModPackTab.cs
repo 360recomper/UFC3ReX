@@ -84,7 +84,7 @@ public class ModPackTab : ILauncherTab
         if (zip == null || busy || GameOpen()) return;
         var prev = ModPack.Installed();
         if (prev != null && DarkBox.Show($"\"{prev.Name}\" is installed. It is removed first and replaced by this pack. Continue?",
-                "UFC3 Launcher", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+                "Undisputed Launcher", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
         await Run(() => ModPack.Install(zip, Progress, CancellationToken.None));
     }
 
