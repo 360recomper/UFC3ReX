@@ -41,6 +41,11 @@ GRAPHICS
   than the window (for example 1x on a 1080p or bigger screen); a picture as big as the window is
   not changed.
 
+WHAT'S NEW IN 1.1.4
+  - Fix: with the mod pack, the game crashed on SELECT FIGHTER (Lightweight) when hovering Roger Huerta (GitHub #5).
+    Fighters ported from UFC 2009 with a separate foot mesh now get it drawn with the right skin shader; Huerta keeps
+    his knuckle blood. If you set ufc3_knuckle_zone = "off" as a workaround, you can remove that line.
+
 WHAT'S NEW IN 1.1.3
   - Fix: menus drawn as plain white boxes on some PCs (seen on Windows setups whose Direct3D 12 can't create
     texture sizes that aren't a multiple of 4). Those menu textures are now converted on load, so menus look normal.
