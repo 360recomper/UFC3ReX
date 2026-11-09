@@ -106,7 +106,15 @@ static class Shots
     static ScrollableControl? Scroller(Control view) =>
         new[] { view }.Concat(All(view)).OfType<ScrollableControl>().FirstOrDefault(s => s.AutoScroll && s.Visible && s.VerticalScroll.Visible);
 
+    /// <summary>The first PrintWindow after a page or dialog change can come back half painted off-screen, so print twice and keep the second.</summary>
     static void Capture(Form f, string path)
+    {
+        CaptureOnce(f, Path.Combine(Path.GetTempPath(), "ufc3-shot-warmup.png"));
+        System.Threading.Thread.Sleep(400); Application.DoEvents();
+        CaptureOnce(f, path);
+    }
+
+    static void CaptureOnce(Form f, string path)
     {
         for (int i = 0; i < 3; i++) { f.Invalidate(true); f.Update(); f.Refresh(); RedrawWindow(f.Handle, IntPtr.Zero, IntPtr.Zero, 0x0001 | 0x0004 | 0x0080 | 0x0100 | 0x0400); Application.DoEvents(); System.Threading.Thread.Sleep(150); Application.DoEvents(); }
         GetWindowRect(f.Handle, out var w);

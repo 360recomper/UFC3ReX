@@ -431,7 +431,8 @@ public class DimLabel : Label
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.Clear(Theme.BackOf(this));
-        var fl = TextFormatFlags.NoPrefix | TextFormatFlags.VerticalCenter;
+        var fl = TextFormatFlags.NoPrefix | TextFormatFlags.WordBreak | TextFormatFlags.NoPadding;
+        if (TextAlign is ContentAlignment.MiddleLeft or ContentAlignment.MiddleCenter or ContentAlignment.MiddleRight) fl |= TextFormatFlags.VerticalCenter;
         TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, Enabled ? ForeColor : Theme.Faint, fl);
     }
 }

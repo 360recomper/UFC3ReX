@@ -26,14 +26,14 @@ static class Ui
         Padding = new Padding(Theme.S(28), Theme.S(4), Theme.S(28), Theme.S(24)), AutoScroll = true, BackColor = Theme.Bg,
     };
 
-    public static Label Text(string t, bool bold = false, int w = 560) => new()
+    public static Label Text(string t, bool bold = false, int w = 560) => new DimLabel()
     {
         Text = t, AutoSize = true, MaximumSize = new Size(Theme.S(w), 0), Margin = new Padding(0, Theme.S(4), 0, Theme.S(4)),
         Font = bold ? Theme.Semi : Theme.Body, ForeColor = bold ? Theme.Ink : Theme.Muted, UseMnemonic = false,
     };
 
     /// <summary>Section heading inside a page (red, with space above).</summary>
-    public static Label Head(string t) => new()
+    public static Label Head(string t) => new DimLabel()
     {
         Text = t, AutoSize = true, Margin = new Padding(0, Theme.S(16), 0, Theme.S(4)), Font = Theme.Font(12f, true),
         ForeColor = Theme.AccentText, UseMnemonic = false,
