@@ -257,7 +257,7 @@ void D3DDevice_SetTexture_hook(u32 /*device*/, u32 sampler, u32 texture_guest) {
   const bool unresolved = (!tex && texture_guest);
 #if defined(SVR_NATIVE_RENDERER)
   if (unresolved) {
-    // Each texture that falls back to the green marker, once (fetch constant dwords).
+    // Each texture that falls back to the white debug texture, once (fetch constant dwords).
     static std::mutex s_mutex;
     static std::unordered_set<u32> s_seen;
     std::lock_guard lock(s_mutex);
@@ -273,7 +273,8 @@ void D3DDevice_SetTexture_hook(u32 /*device*/, u32 sampler, u32 texture_guest) {
   }
 #endif
   if (unresolved) {
-    // Unresolved (e.g. outside the supported native format set): green marker.
+    // Unresolved (outside the supported native format set, or a mirror the device refused to
+    // create): the opaque white 4x4 debug texture, so the quad shows as its vertex colour.
     tex = bd::gpu::GetOrCreateDebugTexture();
   }
   bd::gpu::Video::SetTexture(sampler, tex);

@@ -25,6 +25,7 @@
 #include "gpu/constant_buffers.h"
 #include "gpu/format.h"
 #include "gpu/texture_upload.h"
+#include "ufc_bc_decode_cpu.h"
 #include "ufc_frame_diag.h"
 
 namespace bd::gpu {
@@ -72,9 +73,9 @@ bool CanReuse(const GuestTexture *t, const BCMirrorDesc &d) {
          t->descriptorIndex != kInvalidDescriptorIndex && !t->companion2D && !t->companionCube;
 }
 
-GuestTexture *BuildBCMirrorCore(const BCMirrorDesc &d,
-                                const BCSubresourceUpload *uploads,
-                                u32 upload_count) {
+GuestTexture *BuildMirrorOnDevice(const BCMirrorDesc &d,
+                                  const BCSubresourceUpload *uploads,
+                                  u32 upload_count) {
   auto &s = state();
   std::lock_guard lock(s.mutex);
   GuestTexture *reuse = std::exchange(t_reuse, nullptr);
@@ -201,7 +202,77 @@ GuestTexture *BuildBCMirrorCore(const BCMirrorDesc &d,
   return t;
 }
 
+// NR-WHITEUI: false when this device can't create a BC texture whose level-0 width or height isn't
+// a multiple of 4 (D3D12_OPTIONS8.UnalignedBlockTexturesSupported). Such a create fails, and the
+// draw got the white debug texture: every menu bar and button on those GPUs.
+std::atomic<bool> g_unaligned_bc_ok{true};
+
+bool NeedsRgbaFallback(const BCMirrorDesc &d, ufc3_bc::Kind &kind) {
+  if (g_unaligned_bc_ok.load(std::memory_order_relaxed) || (d.width % 4u == 0 && d.height % 4u == 0))
+    return false;
+  switch (d.format) {
+  case plume::RenderFormat::BC1_UNORM:
+    kind = ufc3_bc::Kind::kBC1;
+    return true;
+  case plume::RenderFormat::BC2_UNORM:
+    kind = ufc3_bc::Kind::kBC2;
+    return true;
+  case plume::RenderFormat::BC3_UNORM:
+    kind = ufc3_bc::Kind::kBC3;
+    return true;
+  default:
+    return false;
+  }
+}
+
+// Every builder lands here. An unaligned BC texture the device can't take is decoded to RGBA8 at the
+// same size and levels, so sampling (and UVs) stay as they were.
+GuestTexture *BuildBCMirrorCore(const BCMirrorDesc &d,
+                                const BCSubresourceUpload *uploads,
+                                u32 upload_count) {
+  ufc3_bc::Kind kind;
+  if (!NeedsRgbaFallback(d, kind))
+    return BuildMirrorOnDevice(d, uploads, upload_count);
+
+  static std::atomic<bool> logged{false};
+  if (!logged.exchange(true, std::memory_order_relaxed))
+    BD_INFO("[nr-whiteui] BC texture {}x{} (format {}) isn't 4-aligned and this device can't "
+            "create it: decoding unaligned DXT textures to RGBA8 on the CPU from now on",
+            d.width, d.height, u32(d.format));
+
+  BCMirrorDesc rd = d;
+  rd.format = plume::RenderFormat::R8G8B8A8_UNORM;
+  const u32 bb = ufc3_bc::BlockBytes(kind);
+  std::vector<std::vector<u8>> bufs(upload_count);
+  std::vector<BCSubresourceUpload> rups(uploads, uploads + upload_count);
+  for (u32 i = 0; i < upload_count; ++i) {
+    const BCSubresourceUpload &u = uploads[i];
+    const u32 src_row = (u.row_width_texels / 4u) * bb;
+    const u32 src_slice = src_row * ((u.height + 3u) / 4u);
+    const u32 dst_row = (u.width * 4u + 255u) & ~255u;
+    const size_t dst_slice = size_t(dst_row) * u.height;
+    const u32 slices = u.fp_depth ? u.fp_depth : 1u;
+    bufs[i].assign(dst_slice * slices, 0u);
+    const auto *src = static_cast<const u8 *>(u.data);
+    for (u32 z = 0; z < slices; ++z) {
+      const size_t so = size_t(z) * src_slice;
+      if (so >= u.size)
+        break;
+      ufc3_bc::DecodeLevel(kind, src + so, u.size - so, src_row, u.width, u.height,
+                           bufs[i].data() + size_t(z) * dst_slice, dst_row);
+    }
+    rups[i].data = bufs[i].data();
+    rups[i].size = bufs[i].size();
+    rups[i].row_width_texels = dst_row / 4u;
+  }
+  return BuildMirrorOnDevice(rd, rups.data(), upload_count);
+}
+
 } // namespace
+
+void SetUnalignedBlockTexturesSupported(bool supported) {
+  g_unaligned_bc_ok.store(supported, std::memory_order_relaxed);
+}
 
 void SetMirrorReuseTarget(GuestTexture *texture) { t_reuse = texture; }
 

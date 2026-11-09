@@ -31,6 +31,10 @@ struct BCMipLevel {
   u32 row_width_texels; // PlacedFootprint rowWidth for this level
 };
 
+// NR-WHITEUI: whether the device creates BC textures whose level-0 size isn't a multiple of 4
+// (D3D12_OPTIONS8.UnalignedBlockTexturesSupported). false: the builders decode those to RGBA8.
+void SetUnalignedBlockTexturesSupported(bool supported);
+
 // The next builder call on this thread may upload into `texture` instead of creating a new one,
 // when the new content has the same size, format and levels (a Bink frame replacing the previous
 // one). The builder then returns `texture` itself. Cleared by the build; pass nullptr to cancel.

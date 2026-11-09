@@ -50,6 +50,7 @@
 #include "gpu/pipeline/pso_recorder.h"
 #include "gpu/settings.h"
 #include "gpu/surface_registry.h"
+#include "gpu/texture_upload.h"
 #include "platform/platform.h"
 #include "ufc_frame_diag.h"
 
@@ -75,6 +76,11 @@ REXCVAR_DEFINE_INT32(ufc3_native_texture_pool_mb, 64, "ufc3",
                      "in heaps of this many MB (16-1024), with one spare heap made ahead on a "
                      "background thread like the target pool's. ufc3_native_off bit 16777216 = the "
                      "default pools");
+REXCVAR_DEFINE_BOOL(ufc3_native_force_unaligned_bc_fallback, false, "ufc3",
+                    "Native renderer (NR-WHITEUI): act as if the graphics card can't create DXT "
+                    "textures whose size isn't a multiple of 4, so those are decoded to RGBA8 on "
+                    "the CPU (what cards without D3D12 UnalignedBlockTexturesSupported get). Test "
+                    "switch");
 REXCVAR_DECLARE(int32_t, ufc3_native_off);
 
 namespace plume {
@@ -551,6 +557,22 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
 #endif
     s.backend_info = DescribeBackend(s.device.get());
 #if defined(REBLUE_D3D12)
+    {
+      // NR-WHITEUI: without this, creating a DXT texture whose size isn't a multiple of 4 fails
+      // (most menu bars and buttons), so the texture builders decode those to RGBA8 instead.
+      D3D12_FEATURE_DATA_D3D12_OPTIONS8 opt8{};
+      auto *d3d = static_cast<plume::D3D12Device *>(s.device.get())->d3d;
+      const bool queried =
+          d3d && SUCCEEDED(d3d->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS8, &opt8,
+                                                    sizeof(opt8)));
+      const bool cap = queried && opt8.UnalignedBlockTexturesSupported;
+      const bool force = REXCVAR_GET(ufc3_native_force_unaligned_bc_fallback);
+      SetUnalignedBlockTexturesSupported(cap && !force);
+      BD_INFO("[nr-whiteui] unaligned BC textures: {}{}",
+              queried ? (cap ? "supported" : "not supported") : "unknown (OPTIONS8 query failed)",
+              force ? ", RGBA8 fallback forced by ufc3_native_force_unaligned_bc_fallback"
+                    : (cap ? "" : ", unaligned DXT textures are decoded to RGBA8"));
+    }
     if (!(REXCVAR_GET(ufc3_native_off) & 262144) &&
         REXCVAR_GET(ufc3_native_target_pool_mb) >= 0) {
       plume::RenderPoolDesc pool_desc;
@@ -888,7 +910,9 @@ void Video::Shutdown(const std::function<void()> &ui_pump) {
 }
 
 // Substituted for content textures reblue cannot resolve, so the draw renders
-// with its vertex color instead of sampling an unbound slot.
+// with its vertex color instead of sampling an unbound slot. It is cleared to
+// opaque WHITE (not a green marker): a failed mirror shows as a flat white quad
+// (NR-WHITEUI: menus on GPUs without unaligned BC support).
 namespace {
 GuestTexture *g_debug_texture = nullptr;
 } // namespace
