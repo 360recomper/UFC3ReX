@@ -1,78 +1,71 @@
 namespace UFC3Launcher.Tabs;
 
-/// <summary>Whole-song waveform with a time ruler, a START and an END handle (the part between them is the walkout
-/// song, highlighted) and a playhead. Drag a handle, or click the strip to move the nearest one; while playing a
-/// click jumps the playhead instead.</summary>
+/// <summary>Whole-song waveform with a time ruler and ONE fixed-width window (the walkout chunk the game will play).
+/// Grab anywhere in the window and drag it; click outside it to start the window there. The window is bright, the
+/// rest dimmed, with a "Walkout ends" label at its right edge, and a playhead while playing.</summary>
 public sealed class WaveformBar : Control
 {
     Music.Peaks? peaks;
-    double start, end = 0, play = -1;
-    int drag;   // 0 none, 1 start, 2 end
+    double start, play = -1, grab;
+    bool dragging, moved;
     string message = "";
 
-    public double EndSetting => end;
     public double Duration => peaks?.Seconds ?? 0;
-    public double Start { get => start; set { start = Math.Clamp(value, 0, Math.Max(0, Duration)); Invalidate(); } }
-    /// <summary>The end handle; 0 means "the end of the song".</summary>
-    public double End { get => end <= 0 || end > Duration ? Duration : end; set { end = value; Invalidate(); } }
+    /// <summary>Length of the window: the walkout, or the whole song when it is shorter.</summary>
+    public double Window => Math.Min(Music.WalkoutSeconds, Duration);
+    public double Start { get => start; set { start = Math.Clamp(value, 0, Math.Max(0, Duration - Window)); Invalidate(); } }
     public double Playhead { get => play; set { if (value != play) { play = value; Invalidate(); } } }
-    /// <summary>While true a click jumps the playhead (listening) instead of moving a handle.</summary>
-    public bool SeekMode { get; set; }
     public string Message { get => message; set { message = value; Invalidate(); } }
-    public bool HasSong => peaks != null;
 
-    /// <summary>The user moved a handle (true = start).</summary>
-    public event Action<bool>? HandleMoved;
-    public event Action<double>? SeekRequested;
+    /// <summary>The user began moving the window (stop any preview).</summary>
+    public event Action? DragStarted;
+    /// <summary>The window was moved and let go (play it).</summary>
+    public event Action? Dropped;
+    /// <summary>The window was clicked without moving it (toggle the preview).</summary>
+    public event Action? WindowClicked;
 
     public WaveformBar()
     {
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         BackColor = Theme.Surface;
-        Height = Theme.S(112);
+        Height = Theme.S(100);
         TabStop = false;
     }
 
-    public void SetPeaks(Music.Peaks? p) { peaks = p; play = -1; start = 0; end = 0; Invalidate(); }
+    public void SetPeaks(Music.Peaks? p) { peaks = p; play = -1; start = 0; Invalidate(); }
 
     int RulerH => Theme.S(22);
     int Pad => Theme.S(10);
     RectangleF Strip => new(Pad, Theme.S(6), Width - 2 * Pad, Height - RulerH - Theme.S(8));
     float X(double sec) => Strip.X + (float)(sec / Math.Max(0.001, Duration)) * Strip.Width;
-    double T(float x) => Math.Clamp((x - Strip.X) / Strip.Width * Duration, 0, Duration);
+    double T(float x) => (x - Strip.X) / Strip.Width * Duration;
+    bool InWindow(float x) => x >= X(start) && x <= X(start + Window);
 
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
         if (peaks == null || e.Button != MouseButtons.Left) return;
-        float grab = Theme.S(9);
-        bool onStart = Math.Abs(e.X - X(start)) <= grab, onEnd = Math.Abs(e.X - X(End)) <= grab;
-        if (onStart && onEnd) drag = e.X < X(start) ? 1 : 2;
-        else if (onStart) drag = 1;
-        else if (onEnd) drag = 2;
-        else if (SeekMode) { SeekRequested?.Invoke(T(e.X)); return; }
-        else drag = Math.Abs(e.X - X(start)) <= Math.Abs(e.X - X(End)) ? 1 : 2;
-        Capture = true;
-        Move(e.X);
+        moved = false; dragging = true; Capture = true;
+        if (InWindow(e.X)) grab = T(e.X) - start;
+        else { grab = 0; DragStarted?.Invoke(); moved = true; Start = Math.Round(T(e.X) * 10) / 10; }
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (drag != 0) { Move(e.X); return; }
         if (peaks == null) return;
-        float grab = Theme.S(9);
-        Cursor = Math.Abs(e.X - X(start)) <= grab || Math.Abs(e.X - X(End)) <= grab ? Cursors.SizeWE : Cursors.Default;
+        if (!dragging) { Cursor = InWindow(e.X) ? Cursors.SizeWE : Cursors.Hand; return; }
+        double s = Math.Round((T(e.X) - grab) * 10) / 10;
+        if (!moved) { if (Math.Abs(s - start) < 0.3) return; moved = true; DragStarted?.Invoke(); }
+        Start = s;
     }
 
-    protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); drag = 0; Capture = false; }
-
-    void Move(float x)
+    protected override void OnMouseUp(MouseEventArgs e)
     {
-        double t = Math.Round(T(x) * 10) / 10, gap = Math.Min(1, Duration / 2);
-        if (drag == 1) { start = Math.Clamp(t, 0, End - gap); HandleMoved?.Invoke(true); }
-        else { end = Math.Clamp(t, start + gap, Duration); if (end >= Duration - 0.05) end = 0; HandleMoved?.Invoke(false); }
-        Invalidate();
+        base.OnMouseUp(e);
+        if (!dragging) return;
+        dragging = false; Capture = false;
+        if (moved) Dropped?.Invoke(); else WindowClicked?.Invoke();
     }
 
     static double Step(double pxPerSec, float minPx)
@@ -93,13 +86,10 @@ public sealed class WaveformBar : Control
             using var pn = new Pen(Theme.Line); g.DrawRectangle(pn, Rectangle.Round(strip));
             return;
         }
-        float xs = X(start), xe = X(End);
-        double cut = Math.Min(End, start + Music.WalkoutSeconds);   // where the game stops the walkout music
-        float xc = X(cut);
+        double cut = start + Window;
+        float xs = X(start), xc = X(cut);
         using (var b = new SolidBrush(Color.FromArgb(48, Theme.Accent))) g.FillRectangle(b, xs, strip.Y, xc - xs, strip.Height);
-        using (var b = new SolidBrush(Color.FromArgb(22, Theme.Muted))) g.FillRectangle(b, xc, strip.Y, xe - xc, strip.Height);
 
-        // peaks, one vertical line per pixel column
         int w = (int)strip.Width; float mid = strip.Y + strip.Height / 2, half = strip.Height / 2 - Theme.S(2);
         float norm = 0.001f;
         for (int i = 0; i < peaks.Max.Length; i++) norm = Math.Max(norm, Math.Max(peaks.Max[i], -peaks.Min[i]));
@@ -107,7 +97,6 @@ public sealed class WaveformBar : Control
         using var outside = new Pen(Color.FromArgb(0x55, 0x55, 0x5E));
         using var inside = new Pen(Theme.Accent);
         using var played = new Pen(Color.FromArgb(255, 150, 150));
-        using var kept = new Pen(Color.FromArgb(0x84, 0x84, 0x8E));
         for (int px = 0; px < w; px++)
         {
             double t0 = px * dim, t1 = (px + 1) * dim;
@@ -115,14 +104,13 @@ public sealed class WaveformBar : Control
             float lo = 0, hi = 0;
             for (int i = i0; i <= i1 && i < peaks.Max.Length; i++) { lo = Math.Min(lo, peaks.Min[i]); hi = Math.Max(hi, peaks.Max[i]); }
             float x = strip.X + px + 0.5f;
-            bool inRange = t1 > start && t0 < End;
-            var pen = !inRange ? outside : t0 >= cut ? kept : (play >= 0 && t1 <= play && play >= start ? played : inside);
+            bool inRange = t1 > start && t0 < cut;
+            var pen = !inRange ? outside : (play >= 0 && t1 <= play ? played : inside);
             float y0 = mid - hi / norm * half, y1 = mid - lo / norm * half;
             if (y1 - y0 < 1) { y0 = mid - 0.5f; y1 = mid + 0.5f; }
             g.DrawLine(pen, x, y0, x, y1);
         }
 
-        // ruler
         double step = Step(strip.Width / Duration, Theme.S(54));
         var rf = Theme.Font(8.5f);
         using (var tick = new Pen(Theme.Line))
@@ -137,20 +125,18 @@ public sealed class WaveformBar : Control
             }
         using (var pn = new Pen(Theme.Line)) g.DrawRectangle(pn, Rectangle.Round(strip));
 
-        if (start + Music.WalkoutSeconds <= Duration + 0.01)
-        {
-            using var cp = new Pen(Theme.AccentText, Math.Max(2, Theme.S(2))) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
-            g.DrawLine(cp, xc, strip.Y, xc, strip.Bottom);
-            var lab = "Walkout ends ~" + Music.FormatTime(start + Music.WalkoutSeconds);
-            var lf = Theme.Font(8.5f);
-            var sz = TextRenderer.MeasureText(lab, lf, new Size(1000, 100), TextFormatFlags.NoPadding);
-            float lx = xc + Theme.S(4) + sz.Width + Theme.S(6) <= strip.Right ? xc + Theme.S(4) : xc - Theme.S(4) - sz.Width - Theme.S(4);
-            var lr = new RectangleF(lx, strip.Bottom - sz.Height - Theme.S(8), sz.Width + Theme.S(4), sz.Height + Theme.S(2));
-            using (var bb = new SolidBrush(Color.FromArgb(220, Theme.Bg))) g.FillRectangle(bb, lr);
-            TextRenderer.DrawText(g, lab, lf, new Point((int)lr.X + Theme.S(2), (int)lr.Y + 1), Theme.AccentText, TextFormatFlags.NoPadding);
-        }
-        Handle(g, xs, true, strip);
-        Handle(g, xe, false, strip);
+        // the window's edges: gold start line, dashed cut-off line with its label
+        using (var gp = new Pen(Theme.Gold, Math.Max(2, Theme.S(2)))) g.DrawLine(gp, xs, strip.Y, xs, strip.Bottom);
+        using (var cp = new Pen(Theme.AccentText, Math.Max(2, Theme.S(2))) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash }) g.DrawLine(cp, xc, strip.Y, xc, strip.Bottom);
+        var lab = "Walkout ends " + Music.FormatTime(cut);
+        var lf = Theme.Font(8.5f);
+        var ls = TextRenderer.MeasureText(lab, lf, new Size(1000, 100), TextFormatFlags.NoPadding);
+        float lx = xc - Theme.S(4) - ls.Width - Theme.S(4);   // inside the window, at its right edge
+        if (lx < xs + Theme.S(3)) lx = xc + Theme.S(4);
+        if (lx + ls.Width + Theme.S(4) > strip.Right) lx = strip.Right - ls.Width - Theme.S(4);
+        var lr = new RectangleF(lx, strip.Y + Theme.S(4), ls.Width + Theme.S(4), ls.Height + Theme.S(2));
+        using (var bb = new SolidBrush(Color.FromArgb(225, Theme.Bg))) g.FillRectangle(bb, lr);
+        TextRenderer.DrawText(g, lab, lf, new Point((int)lr.X + Theme.S(2), (int)lr.Y + 1), Theme.AccentText, TextFormatFlags.NoPadding);
 
         if (play >= 0 && play <= Duration)
         {
@@ -158,19 +144,5 @@ public sealed class WaveformBar : Control
             float x = X(play);
             g.DrawLine(pp, x, strip.Y, x, strip.Bottom);
         }
-    }
-
-    void Handle(Graphics g, float x, bool isStart, RectangleF strip)
-    {
-        using var p = new Pen(Theme.Gold, Math.Max(2, Theme.S(2)));
-        g.DrawLine(p, x, strip.Y, x, strip.Bottom);
-        float fw = Theme.S(14), fh = Theme.S(16);
-        var r = isStart ? new RectangleF(x, strip.Y, fw, fh) : new RectangleF(x - fw, strip.Y, fw, fh);
-        using (var b = new SolidBrush(Theme.Gold)) g.FillRectangle(b, r);
-        using var a = new SolidBrush(Theme.Bg);
-        float cx = r.X + r.Width / 2, cy = r.Y + r.Height / 2, s = Theme.S(3.5f);
-        var pts = isStart ? new[] { new PointF(cx - s, cy - s), new PointF(cx + s, cy), new PointF(cx - s, cy + s) }
-                          : new[] { new PointF(cx + s, cy - s), new PointF(cx - s, cy), new PointF(cx + s, cy + s) };
-        g.FillPolygon(a, pts);
     }
 }

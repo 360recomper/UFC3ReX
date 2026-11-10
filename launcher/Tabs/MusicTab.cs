@@ -45,15 +45,14 @@ public class MusicTab : ILauncherTab
     readonly Label picked = Ui.Text("", w: 340);
     readonly WaveformBar wave = new() { Margin = new Padding(0, Theme.S(8), 0, Theme.S(4)) };
     readonly Label info = Ui.Text("", w: 340);
-    readonly Label howto = Ui.Text("Drag the left handle to where the song should start. The game cuts the music at the dashed line (the walkout is about 38 s), so skipping the walkout cuts it shorter. The right handle is optional: it ends the song earlier with a short fade, then it starts again from the left handle.", w: 340);
     readonly System.Windows.Forms.Timer tick = new() { Interval = 40 };
-    readonly FlatButton playBtn, fromStart, setStart, setEnd;
-    double startSec, endSec;   // endSec 0 = the end of the song
+    readonly FlatButton playBtn, stopBtn;
+    double startSec;
     Music.Peaks? peaks; string? peaksPath; CancellationTokenSource? peaksCts;
-    bool listening, keyHooked;
+    int dropVersion;
     IDisposable? playOwner; double playOffset; int bytesPerSec;
     readonly DarkCombo loud = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = Theme.S(180) };
-    readonly FlatButton choose, preview, save, remove;
+    readonly FlatButton choose, save, remove;
     readonly Label status = Ui.Text("", w: 340);
     readonly FlowLayoutPanel detail = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(Theme.S(20), 0, 0, 0), BackColor = Theme.Bg };
 
@@ -65,7 +64,7 @@ public class MusicTab : ILauncherTab
     string? srcPath;
     bool busy, loading, sample;
     WaveOutEvent? player;
-    MusicClip? clipCache; (string, double, int, double) clipKey;
+    MusicClip? clipCache; (string, double, int) clipKey;
 
     public string Title => "Music";
     public Control View => root;
@@ -86,7 +85,6 @@ public class MusicTab : ILauncherTab
 
         detail.Controls.Add(Ui.Head("Walkout song"));
         detail.Controls.Add(name);
-        detail.Controls.Add(ids);
         detail.Controls.Add(current);
         choose = Ui.Btn("Choose song...", (_, _) => ChooseSong(), 150);
         detail.Controls.Add(choose);
@@ -94,31 +92,22 @@ public class MusicTab : ILauncherTab
 
         detail.Controls.Add(wave);
         detail.Controls.Add(info);
-        var lb = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = true, Margin = new Padding(0, Theme.S(2), 0, 0), MaximumSize = new Size(Theme.S(560), 0) };
-        playBtn = Ui.Btn("Play", (_, _) => TogglePlay(), 90);
-        fromStart = Ui.Btn("From the beginning", (_, _) => StartListen(0), 150);
-        setStart = Ui.Btn("Set start here (S)", (_, _) => SetHere(true), 150);
-        setEnd = Ui.Btn("Set end here (E)", (_, _) => SetHere(false), 140);
-        lb.Controls.AddRange(new Control[] { playBtn, fromStart, setStart, setEnd });
-        detail.Controls.Add(lb);
-        detail.Controls.Add(howto);
-        wave.HandleMoved += st => { startSec = wave.Start; endSec = wave.EndSetting; clipCache = null; UpdateInfo(); if (st && player != null && !listening) StopPlayer(); };
-        wave.SeekRequested += t => { if (listening) StartListen(t); };
+        wave.DragStarted += () => { dropVersion++; StopPlayer(); UpdateButtons(); };
+        wave.Dropped += () => { startSec = wave.Start; UpdateInfo(); PlayWindow(); };
+        wave.WindowClicked += () => { if (player != null) { StopPlayer(); UpdateButtons(); } else PlayWindow(); };
         tick.Tick += (_, _) => Tick();
         detail.SizeChanged += (_, _) => FitWidth();
-        root.HandleCreated += (_, _) => TryHookKeys();
         loud.Items.AddRange(LoudNames); loud.SelectedIndex = 1;
         detail.Controls.Add(FormRow("Loudness", loud, null));
 
-        var btns = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = true, Margin = new Padding(0, Theme.S(8), 0, 0), MaximumSize = new Size(Theme.S(340), 0) };
-        preview = Ui.Btn("Preview walkout", (_, _) => TogglePreview(), 150);
-        save = Ui.Primary(Ui.Btn("Save", (_, _) => Save(), 100));
-        remove = Ui.Btn("Remove song", (_, _) => RemoveSong(), 130);
-        btns.Controls.AddRange(new Control[] { preview, save, remove });
+        var btns = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = true, Margin = new Padding(0, Theme.S(4), 0, 0), MaximumSize = new Size(Theme.S(560), 0) };
+        playBtn = Ui.Btn("Play whole song", (_, _) => PlayWhole(), 130);
+        stopBtn = Ui.Btn("Stop", (_, _) => { StopPlayer(); UpdateButtons(); }, 70);
+        save = Ui.Primary(Ui.Btn("Save", (_, _) => Save(), 90));
+        remove = Ui.Btn("Remove song", (_, _) => RemoveSong(), 120);
+        btns.Controls.AddRange(new Control[] { playBtn, stopBtn, save, remove });
         detail.Controls.Add(btns);
         detail.Controls.Add(status);
-        var note = Ui.Text("Press Play, listen, and click Set start here (or press S) when the part you want begins. Your song file is not changed.", w: 340);
-        detail.Controls.Add(note);
         detail.Controls.Add(Ui.AutoBtn("Open music folder", (_, _) => Ui.OpenFolder(Music.Dir())));
 
         detail.HorizontalScroll.Enabled = false; detail.HorizontalScroll.Visible = false;
@@ -168,7 +157,7 @@ public class MusicTab : ILauncherTab
         rows = n.SelectMany((s, i) => Slots(new RosterFighter(s, i % 3 == 0 ? new() { 10 + i, 310 + i, 1010 + i } : new() { 10 + i }))).Select((f, i) => new Row { F = f, Song = i % 4 == 1 ? "song.m4a" : null }).ToList();
         Reload("Georges St-Pierre");
         var r = Selected;
-        if (r != null) { name.Text = r.F.Name; srcPath = @"C:\Music\Walkout.mp3"; picked.Text = "Song: Walkout.mp3"; startSec = 45; endSec = 0; wave.SetPeaks(SamplePeaks()); wave.Start = 45; wave.Playhead = 62; UpdateInfo(); current.Text = "Now: Walkout.mp3"; status.Text = "Saved. Turned on Fighter walkout music in Settings."; UpdateButtons(); preview.Enabled = save.Enabled = remove.Enabled = true; }
+        if (r != null) { name.Text = r.F.Name; srcPath = @"C:\Music\Walkout.mp3"; picked.Text = "Song: Walkout.mp3"; startSec = 45; wave.SetPeaks(SamplePeaks()); wave.Start = 45; wave.Playhead = 62; UpdateInfo(); current.Text = "Now: Walkout.mp3"; status.Text = "Saved. Turned on Fighter walkout music in Settings."; UpdateButtons(); save.Enabled = remove.Enabled = true; }
     }
 
     Row? Selected => list.SelectedItem as Row;
@@ -227,10 +216,10 @@ public class MusicTab : ILauncherTab
             {
                 if (File.Exists(own.Source)) { srcPath = own.Source; picked.Text = "Song: " + Path.GetFileName(own.Source); }
                 else { srcPath = null; picked.Text = "The original file was moved. Choose it again to change the song."; }
-                startSec = own.Start; endSec = own.End;
+                startSec = own.Start;
                 SelectLoud(own.Loudness);
             }
-            else if (!sample) { srcPath = null; picked.Text = "No song chosen."; startSec = 0; endSec = 0; SelectLoud(100); }
+            else if (!sample) { srcPath = null; picked.Text = "No song chosen."; startSec = 0; SelectLoud(100); }
         }
         StopPlayer();
         if (!sample) LoadPeaks();
@@ -243,10 +232,8 @@ public class MusicTab : ILauncherTab
         var r = Selected;
         bool has = r != null && !busy;
         choose.Enabled = has;
-        preview.Enabled = has && srcPath != null || player != null && !listening;
-        playBtn.Enabled = has && srcPath != null || listening;
-        fromStart.Enabled = has && srcPath != null;
-        setStart.Enabled = setEnd.Enabled = listening;
+        playBtn.Enabled = has && srcPath != null;
+        stopBtn.Enabled = player != null;
         save.Enabled = has && srcPath != null;
         remove.Enabled = has && r?.Song != null && !sample && Music.OwnEntries(Music.ReadLines(Music.TomlFile())).Any(e => e.Name.Equals(r.F.Name, StringComparison.OrdinalIgnoreCase));
     }
@@ -267,7 +254,7 @@ public class MusicTab : ILauncherTab
         picked.Text = "Song: " + Path.GetFileName(srcPath);
         clipCache = null;
         status.Text = "";
-        startSec = 0; endSec = 0;
+        startSec = 0;
         StopPlayer();
         LoadPeaks();
         UpdateButtons();
@@ -283,7 +270,7 @@ public class MusicTab : ILauncherTab
     void SetBusy(bool b)
     {
         busy = b;
-        choose.Enabled = save.Enabled = remove.Enabled = !b; if (b) playBtn.Enabled = fromStart.Enabled = false;
+        choose.Enabled = save.Enabled = remove.Enabled = !b; if (b) playBtn.Enabled = false;
         if (!b) UpdateButtons();
     }
 
@@ -291,95 +278,65 @@ public class MusicTab : ILauncherTab
 
     async Task<MusicClip?> GetClip(double startSec, int pct)
     {
-        var endSec = this.endSec;
-        var key = (srcPath!, startSec, pct, endSec);
+        var key = (srcPath!, startSec, pct);
         if (clipCache != null && clipKey == key) return clipCache;
         var path = srcPath!;
-        var clip = await Task.Run(() => Music.Decode(path, startSec, pct, endSec));
+        var clip = await Task.Run(() => Music.Decode(path, startSec, pct, Music.SaveSeconds));
         clipCache = clip; clipKey = key;
         return clip;
     }
 
-    async void TogglePreview()
+    // ------------------------------------------------------------------ playing
+
+    /// <summary>Plays exactly what the game will play: from the window start, levelled, up to the cut-off.</summary>
+    async void PlayWindow()
     {
-        if (player != null) { StopPlayer(); UpdateButtons(); return; }
         if (srcPath == null || busy || !ReadSettings(out var s, out var pct)) return;
+        int ver = ++dropVersion;
         try
         {
             SetBusy(true); status.Text = "Reading the song...";
             var clip = await GetClip(s, pct);
             SetBusy(false);
-            if (clip == null) return;
+            if (clip == null || ver != dropVersion) return;   // the box was moved again meanwhile
             StopPlayer();
             var w = new WaveOutEvent();
             var prov = new SampleToWaveProvider16(new Music.ClipProvider(clip, Music.WalkoutSeconds));
             w.Init(prov);
-            bytesPerSec = prov.WaveFormat.AverageBytesPerSecond; playOffset = s; listening = false;
-            w.PlaybackStopped += (_, _) => { if (player == w) { StopPlayer(); UpdateButtons(); status.Text = ""; } };
+            bytesPerSec = prov.WaveFormat.AverageBytesPerSecond; playOffset = s;
+            w.PlaybackStopped += (_, _) => { if (player == w) { StopPlayer(); UpdateButtons(); } };
             player = w; w.Play(); tick.Start();
-            preview.Text = "Stop"; UpdateButtons();
-            status.Text = "Playing " + Music.FormatTime(s) + " to the cut-off. This is how it will sound in game.";
+            status.Text = "Playing from " + Music.FormatTime(s) + " to the cut-off, as in the game.";
+            UpdateButtons();
         }
         catch (Exception ex) { SetBusy(false); StopPlayer(); UpdateButtons(); status.Text = "Could not play that file: " + ex.Message; }
     }
 
-    // ------------------------------------------------------------------ listening (whole song, from anywhere)
-
-    void TogglePlay()
-    {
-        if (listening) { StopPlayer(); UpdateButtons(); return; }
-        StartListen(startSec);
-    }
-
-    void StartListen(double from)
+    void PlayWhole()
     {
         if (srcPath == null || busy) return;
         try
         {
             StopPlayer();
-            var prov = Music.OpenStream(srcPath, from, out var owner);
+            dropVersion++;
+            var prov = Music.OpenStream(srcPath, 0, out var owner);
             var w = new WaveOutEvent();
             w.Init(prov);
-            playOwner = owner; bytesPerSec = prov.WaveFormat.AverageBytesPerSecond; playOffset = from; listening = true;
+            playOwner = owner; bytesPerSec = prov.WaveFormat.AverageBytesPerSecond; playOffset = 0;
             w.PlaybackStopped += (_, _) => { if (player == w) { StopPlayer(); UpdateButtons(); } };
             player = w; w.Play(); tick.Start();
-            wave.SeekMode = true; wave.Playhead = from;
-            playBtn.Text = "Stop";
-            status.Text = "Listening. Click the strip to jump, then Set start here when the part you want begins.";
+            status.Text = "Playing the whole song.";
             UpdateButtons();
         }
         catch (Exception ex) { StopPlayer(); UpdateButtons(); status.Text = "Could not play that file: " + ex.Message; }
     }
 
-    double? Position() => player == null || bytesPerSec == 0 ? null : playOffset + player.GetPosition() / (double)bytesPerSec;
-
     void Tick()
     {
-        if (Position() is not double t) return;
+        if (player == null || bytesPerSec == 0) return;
+        double t = playOffset + player.GetPosition() / (double)bytesPerSec;
         if (wave.Duration > 0 && t > wave.Duration) { StopPlayer(); UpdateButtons(); return; }
         wave.Playhead = t;
-    }
-
-    void SetHere(bool isStart)
-    {
-        if (!listening || Position() is not double t) return;
-        t = Math.Round(t * 10) / 10;
-        if (isStart) { wave.Start = Math.Min(t, Math.Max(0, wave.End - 1)); }
-        else { wave.End = Math.Max(t, wave.Start + 1); if (wave.End >= wave.Duration - 0.05) wave.End = 0; }
-        startSec = wave.Start; endSec = wave.EndSetting; clipCache = null;
-        UpdateInfo();
-    }
-
-    void TryHookKeys()
-    {
-        if (keyHooked || root.FindForm() is not Form f) return;
-        keyHooked = true; f.KeyPreview = true;
-        f.KeyDown += (_, e) =>
-        {
-            if (!listening || !root.Visible || f.ActiveControl is TextBoxBase || f.ActiveControl is ComboBox) return;
-            if (e.KeyCode == Keys.S) { SetHere(true); e.Handled = e.SuppressKeyPress = true; }
-            else if (e.KeyCode == Keys.E) { SetHere(false); e.Handled = e.SuppressKeyPress = true; }
-        };
     }
 
     // ------------------------------------------------------------------ waveform
@@ -388,7 +345,7 @@ public class MusicTab : ILauncherTab
     {
         int w = Math.Clamp(detail.ClientSize.Width - detail.Padding.Left - Theme.S(26), Theme.S(300), Theme.S(620));
         wave.Width = w;
-        info.MaximumSize = new Size(w, 0); howto.MaximumSize = new Size(w, 0);
+        info.MaximumSize = new Size(w, 0);
     }
 
     void LoadPeaks()
@@ -412,21 +369,15 @@ public class MusicTab : ILauncherTab
     void ApplyPeaks(Music.Peaks p)
     {
         wave.SetPeaks(p);
-        wave.Start = Math.Min(startSec, Math.Max(0, p.Seconds - 1));
-        wave.End = endSec;
-        startSec = wave.Start; endSec = wave.EndSetting;
+        wave.Start = startSec;
+        startSec = wave.Start;
         UpdateInfo();
     }
 
     void UpdateInfo()
     {
-        double dur = wave.Duration;
-        if (dur <= 0) { info.Text = ""; return; }
-        double end = wave.End, cut = Math.Min(end, startSec + Music.WalkoutSeconds), heard = cut - startSec;
-        string txt = $"Song {Music.FormatTime(dur)}. Plays {Music.FormatTime(startSec)} to {Music.FormatTime(cut)} in the walkout (about {(int)Math.Round(heard)} s).";
-        if (end < startSec + Music.WalkoutSeconds - 0.5 && end < dur - 0.05) txt += $" Ends at {Music.FormatTime(end)}, then starts again.";
-        else if (startSec + Music.WalkoutSeconds > dur) txt += " The song ends first, then starts again from the start point.";
-        info.Text = txt;
+        if (wave.Duration <= 0) { info.Text = srcPath == null ? "" : wave.Message; return; }
+        info.Text = $"Drag the box to the part you want. It plays when you let go. Plays {Music.FormatTime(startSec)} to {Music.FormatTime(startSec + wave.Window)} (about {(int)Math.Round(wave.Window)} s).";
     }
 
     static Music.Peaks SamplePeaks()
@@ -446,13 +397,12 @@ public class MusicTab : ILauncherTab
 
     void StopPlayer()
     {
-        var p = player; player = null; listening = false;
+        var p = player; player = null;
         tick.Stop();
         try { p?.Stop(); p?.Dispose(); } catch { }
         try { playOwner?.Dispose(); } catch { }
         playOwner = null;
-        wave.Playhead = -1; wave.SeekMode = false;
-        preview.Text = "Preview walkout"; playBtn.Text = "Play";
+        wave.Playhead = -1;
     }
 
     async void Save()
@@ -469,9 +419,9 @@ public class MusicTab : ILauncherTab
             var clip = await GetClip(s, pct);
             await Task.Run(() => Music.EncodeM4a(clip!, outPath));
             // an earlier m4a of ours with another name (renamed fighter) would be left behind: not possible, the name is derived from the fighter
-            Music.SetEntry(Music.TomlFile(dir), new Music.Entry(r.F.Name, file, r.F.Ids.ToList(), s, pct, srcPath, endSec));
+            Music.SetEntry(Music.TomlFile(dir), new Music.Entry(r.F.Name, file, r.F.Ids.ToList(), s, pct, srcPath));
             bool turnedOn = Music.EnableInGame();
-            status.Text = $"Saved {file} ({Music.FormatTime(clip!.Seconds)} long)." + (turnedOn ? " \"Fighter walkout music\" was off: it is on now." : "");
+            status.Text = $"Saved {file} ({Music.FormatTime(clip!.Seconds)}: the walkout plus a short tail)." + (turnedOn ? " \"Fighter walkout music\" was off: it is on now." : "");
             SetBusy(false);
             Reload(r.F.Name);
             ShowSelectedKeepStatus();
