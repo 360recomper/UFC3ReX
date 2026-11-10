@@ -50,7 +50,7 @@ public class MusicTab : ILauncherTab
         listHost.Controls.Add(list);
         var searchRow = new Panel { Dock = DockStyle.Top, Height = Theme.S(58), BackColor = Theme.Bg };
         searchRow.Controls.Add(search);
-        searchRow.Controls.Add(new DimLabel { Text = "Search by name or number", Dock = DockStyle.Top, Height = Theme.S(24), ForeColor = Theme.Muted });
+        searchRow.Controls.Add(new DimLabel { Text = "Search fighters", Dock = DockStyle.Top, Height = Theme.S(24), ForeColor = Theme.Muted });
         onlySongs.Dock = DockStyle.Bottom; onlySongs.Height = Theme.S(30);
         left.Controls.Add(listHost);
         left.Controls.Add(onlySongs);
@@ -76,8 +76,7 @@ public class MusicTab : ILauncherTab
         btns.Controls.AddRange(new Control[] { preview, save, remove });
         detail.Controls.Add(btns);
         detail.Controls.Add(status);
-        var note = Ui.Text("Save cuts the song from the start point and stores it as an AAC (m4a) file in the game's music folder. " +
-            "Your original file is never changed. Turn the song off any time with Remove song.", w: 340);
+        var note = Ui.Text("Pick a song and where it should start, then Save. Your song file is not changed.", w: 340);
         detail.Controls.Add(note);
         detail.Controls.Add(Ui.AutoBtn("Open music folder", (_, _) => Ui.OpenFolder(Music.Dir())));
 
@@ -128,7 +127,7 @@ public class MusicTab : ILauncherTab
         rows = n.Select((s, i) => new Row { F = new RosterFighter(s, i % 3 == 0 ? new() { 10 + i, 310 + i, 1010 + i } : new() { 10 + i }), Song = i % 4 == 1 ? "song.m4a" : null }).ToList();
         Reload("Georges St-Pierre");
         var r = Selected;
-        if (r != null) { name.Text = r.F.Name; srcPath = @"C:\Music\Walkout.mp3"; picked.Text = "Song: Walkout.mp3"; start.Text = "0:45"; current.Text = "Playing in game: " + "St-Pierre.m4a (made here)"; status.Text = "Saved. Turned on Fighter walkout music in Settings."; preview.Enabled = save.Enabled = remove.Enabled = true; }
+        if (r != null) { name.Text = r.F.Name; srcPath = @"C:\Music\Walkout.mp3"; picked.Text = "Song: Walkout.mp3"; start.Text = "0:45"; current.Text = "Now: Walkout.mp3"; status.Text = "Saved. Turned on Fighter walkout music in Settings."; preview.Enabled = save.Enabled = remove.Enabled = true; }
     }
 
     Row? Selected => list.SelectedItem as Row;
@@ -179,10 +178,10 @@ public class MusicTab : ILauncherTab
         else
         {
             name.Text = r.F.Name;
-            ids.Text = "Fighter numbers: " + string.Join(", ", r.F.Ids) + "  (one song covers all of them)";
+            ids.Text = r.F.Ids.Count > 1 ? "Plays in UFC and PRIDE fights and every other version of this fighter." : "";
             var own = sample ? null : Music.OwnEntries(Music.ReadLines(Music.TomlFile())).FirstOrDefault(e => e.Name.Equals(r.F.Name, StringComparison.OrdinalIgnoreCase));
-            current.Text = r.Song == null ? "Playing in game: the game's own walkout music."
-                : "Playing in game: " + r.Song + (own != null ? " (made here)" : " (set by hand in fighter_music.toml)");
+            current.Text = r.Song == null ? "Now: the game's normal walkout music."
+                : "Now: " + (own != null && File.Exists(own.Source) ? Path.GetFileName(own.Source) : r.Song) + (own != null ? "" : " (set by hand)");
             if (own != null && !sample)
             {
                 if (File.Exists(own.Source)) { srcPath = own.Source; picked.Text = "Song: " + Path.GetFileName(own.Source); }
