@@ -41,6 +41,10 @@ GRAPHICS
   than the window (for example 1x on a 1080p or bigger screen); a picture as big as the window is
   not changed.
 
+WHAT'S NEW IN 1.1.6
+  - Fix: Steam Deck / Linux (Proton): picking the disc image said there was not enough free space even with plenty
+    free. The launcher now checks the space of the folder the game goes into. The game itself is unchanged from 1.1.4.
+
 WHAT'S NEW IN 1.1.5
   - New launcher look: dark black and red theme with a sidebar, new banner, dark dialogs. Every button and
     setting works as before. The game itself is unchanged from 1.1.4.
