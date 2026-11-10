@@ -29,6 +29,12 @@ static class Program
         if (si >= 0 && si + 1 < args.Length) { Environment.Exit(Shots.Run(args[si + 1], simPct ?? 100)); return; }
         if (args.Contains("--setup-iso") || args.Contains("--setup-dlc") || args.Contains("--shader-cache")) { Environment.Exit(SetupCli(args)); return; }
         if (args.Contains("--music-selftest")) { Environment.Exit(Music.SelfTest()); return; }
+        if (args.Contains("--music-slots"))   // list the Music tab's fighter slots to music-slots.txt (read-only)
+        {
+            var slots = Roster.Load(Paths.Assets, Paths.Mods).SelectMany(Tabs.MusicTab.Slots)
+                .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).Select(f => f.Name + "	" + string.Join(",", f.Ids));
+            File.WriteAllLines(Path.Combine(Paths.Root, "music-slots.txt"), slots); Environment.Exit(0); return;
+        }
         if (args.Length == 2 && args[0] == "--dlss5-setup") { Environment.Exit(Dlss5.SetupCli(args[1])); return; }
         if (args.Length == 2 && (args[0] == "--modpack-install" || args[0] == "--modpack-uninstall"))
         { Environment.Exit(ModPackCli(args[0], args[1])); return; }

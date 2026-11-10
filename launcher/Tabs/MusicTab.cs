@@ -16,11 +16,20 @@ public class MusicTab : ILauncherTab
 
     /// <summary>One list slot per promotion: game ids 300-399 are the PRIDE versions, the rest below 1000 the UFC ones.
     /// Ultimate Fights mode versions (1000+) are left alone (they keep the game's music).</summary>
-    static IEnumerable<RosterFighter> Slots(RosterFighter f)
+    // Extra versions the mod pack adds under the same name (legacy roster): each gets its own slot.
+    static readonly Dictionary<int, string> VersionNames = new() {
+        [141] = "Classic", [193] = "Classic", [194] = "Prime", [195] = "Prime", [197] = "Prime", [199] = "Rookie" };
+
+    internal static IEnumerable<RosterFighter> Slots(RosterFighter f)
     {
-        var ufc = f.Ids.Where(i => i < 1000 && (i < 300 || i > 399)).ToList();
+        var ufc = f.Ids.Where(i => i < 1000 && (i < 300 || i > 399)).OrderBy(i => i).ToList();
         var pride = f.Ids.Where(i => i >= 300 && i <= 399).ToList();
-        if (ufc.Count > 0) yield return new RosterFighter(f.Name, ufc);
+        var main = ufc.Where(i => !VersionNames.ContainsKey(i)).ToList();
+        if (main.Count == 0 && ufc.Count > 0) main.Add(ufc[0]);   // a fighter that only exists as an added version
+        int n = 1;
+        foreach (var i in ufc.Where(i => !main.Contains(i)))
+            yield return new RosterFighter($"{f.Name} ({(VersionNames.TryGetValue(i, out var v) ? v : "Version " + ++n)})", new() { i });
+        if (main.Count > 0) yield return new RosterFighter(f.Name, main);
         if (pride.Count > 0) yield return new RosterFighter(f.Name + " (PRIDE)", pride);
     }
 
