@@ -17,6 +17,7 @@
 #include "fighter_music.h"
 #include "unlock_all.h"
 #include "caf_points.h"
+#include "ultimate_unlock.h"
 #include "pride_range.h"
 #include "dialogue_trace.h"
 #include "dlc_sound_banks.h"
