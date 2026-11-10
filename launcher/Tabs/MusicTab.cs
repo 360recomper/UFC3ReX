@@ -421,7 +421,7 @@ public class MusicTab : ILauncherTab
             // an earlier m4a of ours with another name (renamed fighter) would be left behind: not possible, the name is derived from the fighter
             Music.SetEntry(Music.TomlFile(dir), new Music.Entry(r.F.Name, file, r.F.Ids.ToList(), s, pct, srcPath));
             bool turnedOn = Music.EnableInGame();
-            status.Text = $"Saved {file} ({Music.FormatTime(clip!.Seconds)}: the walkout plus a short tail)." + (turnedOn ? " \"Fighter walkout music\" was off: it is on now." : "");
+            status.Text = $"Saved {file} ({Music.FormatTime(clip!.Seconds)}, ends with a short fade)." + (turnedOn ? " \"Fighter walkout music\" was off: it is on now." : "");
             SetBusy(false);
             Reload(r.F.Name);
             ShowSelectedKeepStatus();

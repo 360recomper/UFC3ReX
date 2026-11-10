@@ -67,7 +67,7 @@ public static class Music
     /// <summary>How long a walkout lasts in game (measured from play logs: 36.6 s and 37.9 s). The game stops the song then.</summary>
     public const double WalkoutSeconds = 38;
     /// <summary>Saved after the walkout length, in case a walkout runs a bit long.</summary>
-    public const double SaveTailSeconds = 7;
+    public const double SaveTailSeconds = 0;   // PRIDE never signals the walkout end: the song must end on its own
     public const double SaveFadeSeconds = 2;
     /// <summary>Length of the saved m4a at most (45 s).</summary>
     public const double SaveSeconds = WalkoutSeconds + SaveTailSeconds;
@@ -312,10 +312,22 @@ public static class Music
         File.WriteAllText(toml, string.Join(Environment.NewLine, lines) + Environment.NewLine, new UTF8Encoding(false));
     }
 
+    /// <summary>Root key loop = false: our clips are cut to the walkout and fade out; looping would run them through the fight
+    /// when the game sends no walkout-end signal (PRIDE mode).</summary>
+    static void LoopOff(List<string> lines)
+    {
+        int firstTable = lines.FindIndex(l => l.TrimStart().StartsWith("["));
+        int end = firstTable < 0 ? lines.Count : firstTable;
+        for (int i = 0; i < end; i++)
+            if (System.Text.RegularExpressions.Regex.IsMatch(lines[i], @"^\s*loop\s*=")) { lines[i] = "loop = false"; return; }
+        lines.Insert(0, "loop = false   # set by the launcher's Music tab: songs are cut to the walkout and end on their own");
+    }
+
     public static void SetEntry(string toml, Entry e)
     {
         var lines = ReadLines(toml);
         RemoveOwn(lines, e.Name);
+        LoopOff(lines);
         while (lines.Count > 0 && lines[^1].Trim().Length == 0) lines.RemoveAt(lines.Count - 1);
         if (lines.Count > 0) lines.Add("");
         lines.Add($"{Marker} {e.Name} | start={e.Start.ToString("0.###", CultureInfo.InvariantCulture)} | loudness={e.Loudness} | source={e.Source}");
@@ -371,7 +383,7 @@ public static class Music
             Check("decoded from 5 s, at most 45 s", Math.Abs(clip.Seconds - want) < 0.1, $"{clip.Seconds:0.00} s");
             var cut = Decode(src, 5, 100, SaveSeconds);
             float tail = 0; for (int i = cut.Samples.Length - 200; i < cut.Samples.Length; i++) tail = Math.Max(tail, Math.Abs(cut.Samples[i]));
-            Check("long song: saved part is 45 s and fades out", Math.Abs(cut.Seconds - SaveSeconds) < 0.1 && tail < 0.01, $"{cut.Seconds:0.00} s, tail {tail:0.0000}");
+            Check("long song: saved part is the walkout length and fades out", Math.Abs(cut.Seconds - SaveSeconds) < 0.1 && tail < 0.01, $"{cut.Seconds:0.00} s, tail {tail:0.0000}");
             var pk = ComputePeaks(src);
             Check("peaks cover the whole song", Math.Abs(pk.Seconds - len) < 0.1 && pk.Max.Length >= len / Peaks.Step - 2 && pk.Max.Max() > 0.1f, $"{pk.Seconds:0.00} s, {pk.Max.Length} columns");
             var f = SafeName("Test Fighter");
