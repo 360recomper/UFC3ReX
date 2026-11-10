@@ -210,11 +210,19 @@ public class MusicTab : ILauncherTab
             }
             else if (!sample) { srcPath = null; picked.Text = "No song chosen."; start.Text = "0:00"; SelectLoud(100); }
         }
+        UpdateButtons();
+        StopPreview();
+    }
+
+    // Only the buttons; never touches the chosen song, start or loudness (Preview/Save finishing must not reset them).
+    void UpdateButtons()
+    {
+        var r = Selected;
+        bool has = r != null && !busy;
         choose.Enabled = has;
         preview.Enabled = has && srcPath != null || player != null;
         save.Enabled = has && srcPath != null;
         remove.Enabled = has && r?.Song != null && !sample && Music.OwnEntries(Music.ReadLines(Music.TomlFile())).Any(e => e.Name.Equals(r.F.Name, StringComparison.OrdinalIgnoreCase));
-        StopPreview();
     }
 
     void SelectLoud(int pct)
@@ -249,7 +257,7 @@ public class MusicTab : ILauncherTab
     {
         busy = b;
         choose.Enabled = save.Enabled = remove.Enabled = !b;
-        if (!b) ShowSelectedKeepStatus();
+        if (!b) UpdateButtons();
     }
 
     void ShowSelectedKeepStatus() { var s = status.Text; ShowSelected(); status.Text = s; }
