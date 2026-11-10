@@ -46,6 +46,7 @@ static class Shots
         {
             var t = form.Tabs[i];
             nav.SelectedIndex = i;
+            if (t is MusicTab mt) mt.PreviewSample();
             await Settle(); await Settle();
             var slug = t.Title.ToLowerInvariant().Replace(' ', '-');
             Capture(form, P(slug));

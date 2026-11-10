@@ -17,4 +17,7 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <DebugType>none</DebugType>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
 </Project>

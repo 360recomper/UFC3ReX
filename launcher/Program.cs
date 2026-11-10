@@ -16,6 +16,7 @@ static class Program
     ///   --native               start the game as Play does with Renderer = Native: builds a missing shader cache, starts on
     ///                          emulated if that fails or after exit code 3 (tests)
     ///   --screenshot-all &lt;dir&gt; [percent]   write a PNG of every tab at that display scale, never starts the game (tests)
+    ///   --music-selftest       headless check of the Music tab: tone -> trimmed m4a -> fighter_music.toml; log in music-selftest-log.txt
     ///   --dlss5-setup &lt;dir&gt;  fill dlss5\ from a folder holding the DLSS 5 stack; log in dlss5-cli-log.txt
     /// </summary>
     [STAThread]
@@ -27,6 +28,7 @@ static class Program
         Theme.Init(simPct);
         if (si >= 0 && si + 1 < args.Length) { Environment.Exit(Shots.Run(args[si + 1], simPct ?? 100)); return; }
         if (args.Contains("--setup-iso") || args.Contains("--setup-dlc") || args.Contains("--shader-cache")) { Environment.Exit(SetupCli(args)); return; }
+        if (args.Contains("--music-selftest")) { Environment.Exit(Music.SelfTest()); return; }
         if (args.Length == 2 && args[0] == "--dlss5-setup") { Environment.Exit(Dlss5.SetupCli(args[1])); return; }
         if (args.Length == 2 && (args[0] == "--modpack-install" || args[0] == "--modpack-uninstall"))
         { Environment.Exit(ModPackCli(args[0], args[1])); return; }
@@ -119,7 +121,7 @@ class MainForm : Form
 
         var play = new PlayTab();
         var setup = new SetupTab();
-        tabs.AddRange(new ILauncherTab[] { play, setup, new SettingsTab(), new ModPackTab(), new Dlss5Tab() });
+        tabs.AddRange(new ILauncherTab[] { play, setup, new SettingsTab(), new MusicTab(), new ModPackTab(), new Dlss5Tab() });
         const string Title = "Undisputed Ultimate Edition - Launcher " + AppVersion.Launcher;
         play.UpdateFound += r => Text = $"{Title}  (update available: v{r.Version}, see Play)";
         play.Updated += () => Text = Title;
@@ -142,6 +144,7 @@ class MainForm : Form
         "Play" => "",
         "Setup" => "",
         "Settings" => "",
+        "Music" => "",
         "Mod Pack" => "",
         "DLSS 5" => "",
         _ => "",
