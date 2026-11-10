@@ -50,13 +50,32 @@ public static class Setup
             if (Directory.Exists(dest))
                 foreach (var f in new DirectoryInfo(dest).EnumerateFiles("*", SearchOption.AllDirectories)) have += f.Length;
             long need = xgd.TotalBytes - have;
-            var root = Path.GetPathRoot(Path.GetFullPath(dest));
-            if (root != null && need > 0 && new DriveInfo(root).AvailableFreeSpace < need + (256L << 20))
-                throw new IOException($"Not enough free space on {root}: need about {need / 1073741824.0:0.0} GB.");
+            if (need <= 0) return;
+            long free = FreeBytes(Path.GetFullPath(dest));
+            if (free >= 0 && free < need + (256L << 20))
+                throw new IOException($"Not enough free space for {dest}: need about {need / 1073741824.0:0.0} GB, " +
+                                      $"{free / 1073741824.0:0.0} GB free.");
         }
         catch (IOException) { throw; }
         catch { /* space check is best effort */ }
     }
+
+    /// <summary>Free bytes for the folder itself (its nearest existing parent), -1 if unknown. Asked per folder, not per
+    /// drive root: under Wine/Proton (Steam Deck) Z:\ is the small read-only system partition while the game folder sits
+    /// on /home, so DriveInfo("Z:\") reported a few GB free on a disk with 65 GB free.</summary>
+    static long FreeBytes(string path)
+    {
+        string? dir = path;
+        while (dir != null && !Directory.Exists(dir)) dir = Path.GetDirectoryName(dir);
+        if (dir == null) return -1;
+        if (GetDiskFreeSpaceExW(dir.EndsWith('\\') ? dir : dir + "\\", out ulong avail, out _, out _))
+            return (long)Math.Min(avail, (ulong)long.MaxValue);
+        return -1;
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    static extern bool GetDiskFreeSpaceExW(string dir, out ulong freeToCaller, out ulong total, out ulong totalFree);
 
     /// <summary>Installs Xbox 360 DLC packages from a package, a zip or a folder (recursively) into userdata.</summary>
     public static List<string> ImportDlc(string source, string userdata, IProgress<(string, double)> progress, CancellationToken ct)
