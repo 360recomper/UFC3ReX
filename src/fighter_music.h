@@ -22,8 +22,9 @@
 // so the walkout's timing and callbacks are untouched, and stream the user's
 // file on the host (music_player.h). The track stops when Wwise reports the
 // end of that playing ID to the game's event callback (sub_827D6740), i.e.
-// whenever the game stops its own walkout music, and pauses with the game's
-// "pause_all" / "resume_all" events. Fighters without a mapping keep the
+// whenever the game stops its own walkout music (UFC), or at the ring intro /
+// round start events (PRIDE, whose walkout events never end), and pauses with
+// the game's "pause_all" / "resume_all" events. Fighters without a mapping keep the
 // vanilla track.
 
 #pragma once
@@ -56,7 +57,7 @@ REXCVAR_DEFINE_BOOL(ufc3_trace_sound, false, "ufc3",
 
 REX_EXTERN(__imp__sub_82F19390);  // AK::SoundEngine::PostEvent(id, obj, flags, cb, cookie, ...)
 REX_EXTERN(__imp__sub_827D6740);  // game's Wwise event callback(type, info)
-REX_EXTERN(sub_82F16520);         // AK::SoundEngine::SetState(group, state)
+REX_EXTERN(__imp__sub_82F16520);  // AK::SoundEngine::SetState(group, state)
 
 namespace ufc3_fighter_music {
 
@@ -73,6 +74,14 @@ constexpr uint32_t kStateNone = 0;                // SetState maps "none" (0x2CA
 constexpr uint32_t kCornerBase = 0x83541FE0;      // fight setup, one record per corner
 constexpr uint32_t kCornerStride = 20712;
 constexpr uint32_t kAkEndOfEvent = 1;
+// PRIDE walkouts post the Alt events, and with the state at "none" their
+// container keeps running (duration callbacks every few seconds through the
+// whole fight), so end-of-event never comes. Two events end the walkout in
+// every mode instead (ufc3_trace_sound runs, FINDINGS-pride-walkout-stop.md):
+constexpr uint32_t kRingIntro = 0x9DE3B203;  // announcer opens the ring intro after the walkouts
+                                             // (PRIDE: 35 s into the 2nd walkout; UFC: 8 s after
+                                             // end-of-event)
+constexpr uint32_t kRoundStart = 0xF73D6511;  // round start (with B2459618 / BF56DC37 on the corners)
 
 using ufc3_music::MusicPlayer;
 
@@ -243,6 +252,14 @@ extern "C" REX_FUNC(sub_82F19390) {
     if (id == fm::kEntranceBlue || id == fm::kEntranceBlueAlt) corner = 1;
     if (id == fm::kPauseAll) fm::MusicPlayer::Get().Pause(true);
     if (id == fm::kResumeAll) fm::MusicPlayer::Get().Pause(false);
+    if (id == fm::kRingIntro || id == fm::kRoundStart) {
+      fm::State& s = fm::Get();
+      if (s.playing_id.exchange(0)) {
+        REXLOG_INFO("[fighter_music] stopped at {} ({:08X})",
+                    id == fm::kRingIntro ? "ring intro" : "round start", id);
+        fm::MusicPlayer::Get().Stop(s.fade_out.load());
+      }
+    }
   }
 
   std::optional<std::filesystem::path> track;
@@ -267,7 +284,7 @@ extern "C" REX_FUNC(sub_82F19390) {
       c.r1.u64 = (sp - 0x200) & ~0xFull;
       c.r3.u64 = fm::kEntranceGroup;
       c.r4.u64 = fm::kStateNone;
-      sub_82F16520(c, base);
+      __imp__sub_82F16520(c, base);
     }
     lock.unlock();
   }
@@ -286,14 +303,33 @@ extern "C" REX_FUNC(sub_82F19390) {
   }
 }
 
+extern "C" REX_FUNC(sub_82F16520) {
+  if (REXCVAR_GET(ufc3_trace_sound)) {
+    // Some groups are set every frame: log changes only.
+    static std::mutex m;
+    static std::unordered_map<uint32_t, uint32_t> last;
+    std::lock_guard lock(m);
+    auto [it, added] = last.try_emplace(ctx.r3.u32, ctx.r4.u32);
+    if (added || it->second != ctx.r4.u32) {
+      it->second = ctx.r4.u32;
+      REXLOG_INFO("[snd] SetState {:08X} {:08X} lr={:08X}", ctx.r3.u32, ctx.r4.u32,
+                  static_cast<uint32_t>(ctx.lr));
+    }
+  }
+  __imp__sub_82F16520(ctx, base);
+}
+
 extern "C" REX_FUNC(sub_827D6740) {
   namespace fm = ufc3_fighter_music;
+  if (REXCVAR_GET(ufc3_trace_sound) && ctx.r4.u32 && ctx.r3.u32 != 8) {  // 8 = duration, many
+    REXLOG_INFO("[snd] callback type {} playing {:X} event {:08X}", ctx.r3.u32,
+                fm::Load32(base, ctx.r4.u32 + 8), fm::Load32(base, ctx.r4.u32 + 12));
+  }
   if (ctx.r3.u32 == fm::kAkEndOfEvent && ctx.r4.u32) {
     uint32_t playing = fm::Load32(base, ctx.r4.u32 + 8);
     uint32_t ours = fm::Get().playing_id.load();
-    if (ours && playing == ours) {
-      fm::Get().playing_id.store(0);
-      REXLOG_INFO("[fighter_music] game ended its walkout music; stopping track");
+    if (ours && playing == ours && fm::Get().playing_id.compare_exchange_strong(ours, 0)) {
+      REXLOG_INFO("[fighter_music] stopped at walkout end (game ended its walkout music)");
       fm::MusicPlayer::Get().Stop(fm::Get().fade_out.load());
     }
   }
