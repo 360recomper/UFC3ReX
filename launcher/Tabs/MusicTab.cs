@@ -11,7 +11,17 @@ public class MusicTab : ILauncherTab
     {
         public RosterFighter F = null!;
         public string? Song;   // file name the game will play for this fighter, or null
-        public override string ToString() => F.Name + (Song != null ? "  \u266A" : "") + "    " + string.Join(", ", F.Ids.Take(3)) + (F.Ids.Count > 3 ? ", ..." : "");
+        public override string ToString() => F.Name + (Song != null ? "  ♪" : "");
+    }
+
+    /// <summary>One list slot per promotion: game ids 300-399 are the PRIDE versions, the rest below 1000 the UFC ones.
+    /// Ultimate Fights mode versions (1000+) are left alone (they keep the game's music).</summary>
+    static IEnumerable<RosterFighter> Slots(RosterFighter f)
+    {
+        var ufc = f.Ids.Where(i => i < 1000 && (i < 300 || i > 399)).ToList();
+        var pride = f.Ids.Where(i => i >= 300 && i <= 399).ToList();
+        if (ufc.Count > 0) yield return new RosterFighter(f.Name, ufc);
+        if (pride.Count > 0) yield return new RosterFighter(f.Name + " (PRIDE)", pride);
     }
 
     readonly Panel root = new() { BackColor = Theme.Bg, Padding = new Padding(Theme.S(28), Theme.S(4), Theme.S(28), Theme.S(16)) };
@@ -112,7 +122,7 @@ public class MusicTab : ILauncherTab
         {
             if (!Paths.AssetsReady) throw new FileNotFoundException("Set up the game files first (Setup tab): the fighter list is read from them.");
             var roster = Roster.Load(Paths.Assets, Paths.Mods);
-            rows = roster.Select(f => new Row { F = f }).ToList();
+            rows = roster.SelectMany(Slots).OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).Select(f => new Row { F = f }).ToList();
         }
         catch (Exception ex) { rows = new(); rosterError = ex.Message; }
         Reload(keep);
@@ -124,7 +134,7 @@ public class MusicTab : ILauncherTab
         sample = true;
         string[] n = { "Anderson Silva", "Brock Lesnar", "Chuck Liddell", "Dan Henderson", "Fedor Emelianenko", "Forrest Griffin", "Frank Mir", "Georges St-Pierre",
             "Hector Lombard", "Jon Jones", "Kazushi Sakuraba", "Mark Coleman", "Mirko Cro Cop", "Quinton Jackson", "Randy Couture", "Rich Franklin", "Tito Ortiz", "Wanderlei Silva" };
-        rows = n.Select((s, i) => new Row { F = new RosterFighter(s, i % 3 == 0 ? new() { 10 + i, 310 + i, 1010 + i } : new() { 10 + i }), Song = i % 4 == 1 ? "song.m4a" : null }).ToList();
+        rows = n.SelectMany((s, i) => Slots(new RosterFighter(s, i % 3 == 0 ? new() { 10 + i, 310 + i, 1010 + i } : new() { 10 + i }))).Select((f, i) => new Row { F = f, Song = i % 4 == 1 ? "song.m4a" : null }).ToList();
         Reload("Georges St-Pierre");
         var r = Selected;
         if (r != null) { name.Text = r.F.Name; srcPath = @"C:\Music\Walkout.mp3"; picked.Text = "Song: Walkout.mp3"; start.Text = "0:45"; current.Text = "Now: Walkout.mp3"; status.Text = "Saved. Turned on Fighter walkout music in Settings."; preview.Enabled = save.Enabled = remove.Enabled = true; }
@@ -178,7 +188,7 @@ public class MusicTab : ILauncherTab
         else
         {
             name.Text = r.F.Name;
-            ids.Text = r.F.Ids.Count > 1 ? "Plays in UFC and PRIDE fights and every other version of this fighter." : "";
+            ids.Text = "";
             var own = sample ? null : Music.OwnEntries(Music.ReadLines(Music.TomlFile())).FirstOrDefault(e => e.Name.Equals(r.F.Name, StringComparison.OrdinalIgnoreCase));
             current.Text = r.Song == null ? "Now: the game's normal walkout music."
                 : "Now: " + (own != null && File.Exists(own.Source) ? Path.GetFileName(own.Source) : r.Song) + (own != null ? "" : " (set by hand)");
