@@ -65,7 +65,7 @@ public static class Music
     // ------------------------------------------------------------------ audio
 
     /// <summary>How long a walkout lasts in game (measured from play logs: 36.6 s and 37.9 s). The game stops the song then.</summary>
-    public const double WalkoutSeconds = 38;
+    public const double WalkoutSeconds = 42;   // longest measured (UFC 41.6 s, PRIDE 35.3 s); the game stops the song at the right moment
     /// <summary>Saved after the walkout length, in case a walkout runs a bit long.</summary>
     public const double SaveTailSeconds = 0;   // PRIDE never signals the walkout end: the song must end on its own
     public const double SaveFadeSeconds = 2;
