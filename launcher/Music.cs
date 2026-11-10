@@ -64,11 +64,61 @@ public static class Music
 
     // ------------------------------------------------------------------ audio
 
+    public const double FadeOut = 1.5;
+    /// <summary>How long a walkout lasts in game (measured from play logs: 36.6 s and 37.9 s). The game stops the song then.</summary>
+    public const double WalkoutSeconds = 38;
+
+    /// <summary>Whole-song overview: loudest negative/positive sample per 50 ms, mono mix. Computed once per chosen song.</summary>
+    public sealed class Peaks
+    {
+        public const double Step = 0.05;
+        public float[] Min = Array.Empty<float>(), Max = Array.Empty<float>();
+        public double Seconds;
+    }
+
+    public static Peaks ComputePeaks(string path, CancellationToken ct = default)
+    {
+        Mf();
+        using var reader = new MediaFoundationReader(path);
+        ISampleProvider sp = reader.ToSampleProvider();
+        int ch = sp.WaveFormat.Channels, rate = sp.WaveFormat.SampleRate;
+        int per = Math.Max(1, (int)(rate * Peaks.Step));
+        var mins = new List<float>(); var maxs = new List<float>();
+        var buf = new float[per * ch * 20];
+        float lo = 0, hi = 0; int cnt = 0; long frames = 0; int n;
+        while ((n = sp.Read(buf, 0, buf.Length)) > 0)
+        {
+            ct.ThrowIfCancellationRequested();
+            for (int i = 0; i + ch <= n; i += ch)
+            {
+                float v = 0; for (int c = 0; c < ch; c++) v += buf[i + c];
+                v /= ch;
+                if (v < lo) lo = v; if (v > hi) hi = v;
+                frames++;
+                if (++cnt == per) { mins.Add(lo); maxs.Add(hi); lo = hi = 0; cnt = 0; }
+            }
+        }
+        if (cnt > 0) { mins.Add(lo); maxs.Add(hi); }
+        return new Peaks { Min = mins.ToArray(), Max = maxs.ToArray(), Seconds = (double)frames / rate };
+    }
+
+    /// <summary>The song as a 16-bit stereo-or-mono stream from <paramref name="startSec"/>, for listening (not levelled).</summary>
+    public static IWaveProvider OpenStream(string path, double startSec, out IDisposable owner)
+    {
+        Mf();
+        var reader = new MediaFoundationReader(path);
+        owner = reader;
+        if (startSec > 0) reader.CurrentTime = TimeSpan.FromSeconds(startSec);
+        ISampleProvider sp = reader.ToSampleProvider();
+        if (sp.WaveFormat.Channels > 2) sp = new MultiplexingSampleProvider(new[] { sp }, 2);
+        return new SampleToWaveProvider16(sp);
+    }
+
     static bool mfStarted;
     static void Mf() { if (!mfStarted) { MediaFoundationApi.Startup(); mfStarted = true; } }
 
     /// <summary>Decode from <paramref name="startSec"/> to the end, to stereo 44.1/48 kHz, and level it.</summary>
-    public static MusicClip Decode(string path, double startSec, int loudnessPct)
+    public static MusicClip Decode(string path, double startSec, int loudnessPct, double endSec = 0, double fadeSec = FadeOut)
     {
         Mf();
         using var reader = new MediaFoundationReader(path);
@@ -78,6 +128,7 @@ public static class Music
         int rate = sp.WaveFormat.SampleRate;
         if (rate != 44100 && rate != 48000) { sp = new WdlResamplingSampleProvider(sp, 44100); rate = 44100; }
         long skip = (long)(startSec * rate) * 2;
+        long limit = endSec > startSec ? (long)((endSec - startSec) * rate) * 2 : long.MaxValue;   // samples kept after the start
         var all = new List<float>(rate * 2 * 240);
         var buf = new float[rate * 2];
         int n;
@@ -85,7 +136,8 @@ public static class Music
         {
             int from = 0;
             if (skip > 0) { int s = (int)Math.Min(skip, n); skip -= s; from = s; }
-            for (int i = from; i < n; i++) all.Add(buf[i]);
+            for (int i = from; i < n && all.Count < limit; i++) all.Add(buf[i]);
+            if (all.Count >= limit) break;
         }
         if (all.Count < rate) throw new InvalidDataException("Nothing left to play after the start point.");
         var data = all.ToArray();
@@ -94,6 +146,17 @@ public static class Music
         float rms = (float)Math.Sqrt(sum / data.Length);
         float gain = Math.Min(TargetRms / Math.Max(rms, 1e-6f), 0.95f / peak) * (loudnessPct / 100f);
         for (int i = 0; i < data.Length; i++) data[i] = Math.Clamp(data[i] * gain, -0.98f, 0.98f);
+        if (endSec > startSec && fadeSec > 0)
+        {
+            // short fade-out at the cut so the loop back to the start isn't a hard cut
+            int fade = (int)Math.Min(fadeSec * rate, data.Length / 2 / 2) ;
+            for (int k = 0; k < fade; k++)
+            {
+                float g = 1f - (float)(k + 1) / fade;
+                int i = data.Length - 2 * (fade - k);
+                data[i] *= g; data[i + 1] *= g;
+            }
+        }
         return new MusicClip { Samples = data, Rate = rate };
     }
 
@@ -120,12 +183,13 @@ public static class Music
 
     public sealed class ClipProvider : ISampleProvider
     {
-        readonly MusicClip clip; int pos;
-        public ClipProvider(MusicClip c) { clip = c; WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(c.Rate, 2); }
+        readonly MusicClip clip; int pos; readonly int limit;
+        /// <param name="maxSeconds">Stop after this many seconds (0 = play it all).</param>
+        public ClipProvider(MusicClip c, double maxSeconds = 0) { clip = c; limit = maxSeconds > 0 ? (int)Math.Min(c.Samples.Length, maxSeconds * c.Rate * 2) & ~1 : c.Samples.Length; WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(c.Rate, 2); }
         public WaveFormat WaveFormat { get; }
         public int Read(float[] buffer, int offset, int count)
         {
-            int n = Math.Min(count, clip.Samples.Length - pos);
+            int n = Math.Max(0, Math.Min(count, limit - pos));
             Array.Copy(clip.Samples, pos, buffer, offset, n);
             pos += n;
             return n;
@@ -193,7 +257,7 @@ public static class Music
     }
 
     /// <summary>The launcher's own song entry for a fighter: marker comment + [[track]] block.</summary>
-    public sealed record Entry(string Name, string File, List<int> Ids, double Start, int Loudness, string Source);
+    public sealed record Entry(string Name, string File, List<int> Ids, double Start, int Loudness, string Source, double End = 0);
 
     public static List<Entry> OwnEntries(IList<string> lines)
     {
@@ -202,10 +266,11 @@ public static class Music
         {
             if (!lines[i].StartsWith(Marker)) continue;
             var parts = lines[i][Marker.Length..].Split(" | ");
-            double start = 0; int vol = 100; string src = "";
+            double start = 0, end = 0; int vol = 100; string src = "";
             foreach (var p in parts.Skip(1))
             {
                 if (p.StartsWith("start=")) double.TryParse(p[6..], NumberStyles.Float, CultureInfo.InvariantCulture, out start);
+                else if (p.StartsWith("end=")) double.TryParse(p[4..], NumberStyles.Float, CultureInfo.InvariantCulture, out end);
                 else if (p.StartsWith("loudness=")) int.TryParse(p[9..], out vol);
                 else if (p.StartsWith("source=")) src = p[7..];
             }
@@ -213,7 +278,7 @@ public static class Music
             for (int j = i + 1; j < lines.Count && lines[j].Trim().Length > 0; j++) block.Add(lines[j]);
             var mp = Parse(block);
             if (mp.Tracks.Count == 0) continue;
-            res.Add(new Entry(parts[0].Trim(), mp.Tracks.Values.First(), mp.Tracks.Keys.OrderBy(x => x).ToList(), start, vol, src));
+            res.Add(new Entry(parts[0].Trim(), mp.Tracks.Values.First(), mp.Tracks.Keys.OrderBy(x => x).ToList(), start, vol, src, end));
         }
         return res;
     }
@@ -250,7 +315,7 @@ public static class Music
         RemoveOwn(lines, e.Name);
         while (lines.Count > 0 && lines[^1].Trim().Length == 0) lines.RemoveAt(lines.Count - 1);
         if (lines.Count > 0) lines.Add("");
-        lines.Add($"{Marker} {e.Name} | start={e.Start.ToString("0.###", CultureInfo.InvariantCulture)} | loudness={e.Loudness} | source={e.Source}");
+        lines.Add($"{Marker} {e.Name} | start={e.Start.ToString("0.###", CultureInfo.InvariantCulture)}{(e.End > e.Start ? " | end=" + e.End.ToString("0.###", CultureInfo.InvariantCulture) : "")} | loudness={e.Loudness} | source={e.Source}");
         lines.Add("[[track]]");
         lines.Add("file = \"" + e.File.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"");
         lines.Add("fighters = [" + string.Join(", ", e.Ids) + "]");
@@ -300,6 +365,11 @@ public static class Music
             File.WriteAllLines(toml, new[] { "# my own notes", "volume = 0.8", "loop = true", "", "[fighters]", "5 = \"hand.mp3\"  # keep me", "\"*\" = \"any.mp3\"", "", "[[track]]", "file = \"spider.mp3\"", "fighters = [22, 309,", "  1005]" });
             var clip = Decode(src, 5, 100);
             Check("decoded from 5 s", Math.Abs(clip.Seconds - (len - 5)) < 0.1, $"{clip.Seconds:0.00} s");
+            var cut = Decode(src, 5, 100, 12);
+            float tail = 0; for (int i = cut.Samples.Length - 200; i < cut.Samples.Length; i++) tail = Math.Max(tail, Math.Abs(cut.Samples[i]));
+            Check("cut 5 s to 12 s = 7 s, fades out at the end", Math.Abs(cut.Seconds - 7) < 0.1 && tail < 0.01, $"{cut.Seconds:0.00} s, tail {tail:0.0000}");
+            var pk = ComputePeaks(src);
+            Check("peaks cover the whole song", Math.Abs(pk.Seconds - len) < 0.1 && pk.Max.Length >= len / Peaks.Step - 2 && pk.Max.Max() > 0.1f, $"{pk.Seconds:0.00} s, {pk.Max.Length} columns");
             var f = SafeName("Test Fighter");
             var outPath = Path.Combine(mdir, f);
             EncodeM4a(clip, outPath);
@@ -312,10 +382,10 @@ public static class Music
             Check("toml parses as the game does", m.Tracks.GetValueOrDefault(7) == f && m.Tracks.GetValueOrDefault(1007) == f && m.Tracks.GetValueOrDefault(5) == "hand.mp3"
                 && m.Tracks.GetValueOrDefault(22) == "spider.mp3" && m.Tracks.GetValueOrDefault(1005) == "spider.mp3" && m.Any == "any.mp3");
             Check("comments and other entries kept", after.Contains("# my own notes") && after.Any(l => l.Contains("# keep me")) && after.Contains("volume = 0.8"));
-            SetEntry(toml, new Entry("Test Fighter", f, new() { 7, 1007 }, 6, 90, src));
+            SetEntry(toml, new Entry("Test Fighter", f, new() { 7, 1007 }, 6, 90, src, 14.5));
             Check("saving again replaces, no duplicate", OwnEntries(ReadLines(toml)).Count == 1 && ReadLines(toml).Count(l => l.StartsWith(Marker)) == 1);
             var own = OwnEntries(ReadLines(toml)).Single();
-            Check("start and loudness remembered", own.Start == 6 && own.Loudness == 90 && own.Source == src);
+            Check("start and loudness remembered", own.Start == 6 && own.Loudness == 90 && own.Source == src && own.End == 14.5);
             var gone = RemoveEntry(toml, "Test Fighter");
             if (gone != null) File.Delete(Path.Combine(mdir, gone));
             m = Parse(ReadLines(toml));
