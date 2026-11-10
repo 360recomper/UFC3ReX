@@ -11,7 +11,7 @@ public class MusicTab : ILauncherTab
     {
         public RosterFighter F = null!;
         public string? Song;   // file name the game will play for this fighter, or null
-        public override string ToString() => (Song != null ? "\u266A  " : "      ") + F.Name + "    " + string.Join(", ", F.Ids.Take(3)) + (F.Ids.Count > 3 ? ", ..." : "");
+        public override string ToString() => F.Name + (Song != null ? "  \u266A" : "") + "    " + string.Join(", ", F.Ids.Take(3)) + (F.Ids.Count > 3 ? ", ..." : "");
     }
 
     readonly Panel root = new() { BackColor = Theme.Bg, Padding = new Padding(Theme.S(28), Theme.S(4), Theme.S(28), Theme.S(16)) };
@@ -20,14 +20,14 @@ public class MusicTab : ILauncherTab
     readonly DarkList list = new() { Dock = DockStyle.Fill };
     readonly Label listNote = Ui.Text("", w: 260);
 
-    readonly Label name = new DimLabel { AutoSize = true, Font = Theme.Font(14f, true), ForeColor = Theme.Ink, MaximumSize = new Size(Theme.S(380), 0), Margin = new Padding(0, 0, 0, Theme.S(2)) };
-    readonly Label ids = Ui.Text("", w: 380);
-    readonly Label current = Ui.Text("", w: 380);
-    readonly Label picked = Ui.Text("", w: 380);
+    readonly Label name = new DimLabel { AutoSize = true, Font = Theme.Font(14f, true), ForeColor = Theme.Ink, MaximumSize = new Size(Theme.S(340), 0), Margin = new Padding(0, 0, 0, Theme.S(2)) };
+    readonly Label ids = Ui.Text("", w: 340);
+    readonly Label current = Ui.Text("", w: 340);
+    readonly Label picked = Ui.Text("", w: 340);
     readonly TextBox start = new() { Width = Theme.S(80), BackColor = Theme.Surface, ForeColor = Theme.Ink, BorderStyle = BorderStyle.FixedSingle, Font = Theme.Body, Text = "0:00" };
     readonly DarkCombo loud = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = Theme.S(180) };
     readonly FlatButton choose, preview, save, remove;
-    readonly Label status = Ui.Text("", w: 380);
+    readonly Label status = Ui.Text("", w: 340);
     readonly FlowLayoutPanel detail = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(Theme.S(20), 0, 0, 0), BackColor = Theme.Bg };
 
     static readonly string[] LoudNames = { "Quieter (70%)", "Normal (100%)", "Louder (130%)" };
@@ -65,11 +65,11 @@ public class MusicTab : ILauncherTab
         detail.Controls.Add(choose);
         detail.Controls.Add(picked);
 
-        detail.Controls.Add(FormRow("Start at", start, "minutes:seconds, or seconds"));
+        detail.Controls.Add(FormRow("Start at", start, "m:ss or seconds"));
         loud.Items.AddRange(LoudNames); loud.SelectedIndex = 1;
         detail.Controls.Add(FormRow("Loudness", loud, null));
 
-        var btns = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = true, Margin = new Padding(0, Theme.S(8), 0, 0), MaximumSize = new Size(Theme.S(390), 0) };
+        var btns = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = true, Margin = new Padding(0, Theme.S(8), 0, 0), MaximumSize = new Size(Theme.S(340), 0) };
         preview = Ui.Btn("Preview", (_, _) => TogglePreview(), 110);
         save = Ui.Primary(Ui.Btn("Save", (_, _) => Save(), 100));
         remove = Ui.Btn("Remove song", (_, _) => RemoveSong(), 130);
@@ -77,10 +77,11 @@ public class MusicTab : ILauncherTab
         detail.Controls.Add(btns);
         detail.Controls.Add(status);
         var note = Ui.Text("Save cuts the song from the start point and stores it as an AAC (m4a) file in the game's music folder. " +
-            "Your original file is never changed. Turn the song off any time with Remove song.", w: 380);
+            "Your original file is never changed. Turn the song off any time with Remove song.", w: 340);
         detail.Controls.Add(note);
         detail.Controls.Add(Ui.AutoBtn("Open music folder", (_, _) => Ui.OpenFolder(Music.Dir())));
 
+        detail.HorizontalScroll.Enabled = false; detail.HorizontalScroll.Visible = false;
         root.Controls.Add(detail);
         root.Controls.Add(left);
 
@@ -97,7 +98,7 @@ public class MusicTab : ILauncherTab
         p.Controls.Add(new DimLabel { Text = label, AutoSize = false, Width = Theme.S(80), Height = Theme.S(26), ForeColor = Theme.Ink, TextAlign = ContentAlignment.MiddleLeft });
         c.Margin = new Padding(0, Theme.S(1), Theme.S(10), 0);
         p.Controls.Add(c);
-        if (hint != null) p.Controls.Add(new DimLabel { Text = hint, AutoSize = false, Width = Theme.S(220), Height = Theme.S(26), ForeColor = Theme.Muted, TextAlign = ContentAlignment.MiddleLeft });
+        if (hint != null) p.Controls.Add(new DimLabel { Text = hint, AutoSize = false, Width = Theme.S(170), Height = Theme.S(26), ForeColor = Theme.Muted, TextAlign = ContentAlignment.MiddleLeft });
         return p;
     }
 
@@ -127,7 +128,7 @@ public class MusicTab : ILauncherTab
         rows = n.Select((s, i) => new Row { F = new RosterFighter(s, i % 3 == 0 ? new() { 10 + i, 310 + i, 1010 + i } : new() { 10 + i }), Song = i % 4 == 1 ? "song.m4a" : null }).ToList();
         Reload("Georges St-Pierre");
         var r = Selected;
-        if (r != null) { name.Text = r.F.Name; srcPath = @"C:\Music\Walkout.mp3"; picked.Text = "Song: Walkout.mp3"; start.Text = "0:45"; current.Text = "Playing in game: " + "St-Pierre.m4a (made here)"; status.Text = "Saved. Turned on Fighter walkout music in Settings."; }
+        if (r != null) { name.Text = r.F.Name; srcPath = @"C:\Music\Walkout.mp3"; picked.Text = "Song: Walkout.mp3"; start.Text = "0:45"; current.Text = "Playing in game: " + "St-Pierre.m4a (made here)"; status.Text = "Saved. Turned on Fighter walkout music in Settings."; preview.Enabled = save.Enabled = remove.Enabled = true; }
     }
 
     Row? Selected => list.SelectedItem as Row;
