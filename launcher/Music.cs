@@ -410,10 +410,25 @@ public static class Music
             Check("ufc3_fighter_music switched on", EnableInGame() && new Toml().GetBool("ufc3_fighter_music", false));
             if (Paths.AssetsReady)
             {
-                var r = Roster.Load(Paths.Assets, Paths.Mods);
+                var r = Roster.Load(Paths.Assets, Paths.Mods, userData: Paths.UserData);
                 Check("roster read from game files", r.Count > 100, $"{r.Count} fighters, e.g. " + string.Join(", ", r.Take(3).Select(x => $"{x.Name} [{string.Join(',', x.Ids)}]")));
                 var gsp = r.FirstOrDefault(x => x.Name.Contains("St-Pierre", StringComparison.OrdinalIgnoreCase));
                 if (gsp != null) log.Add($"INFO {gsp.Name}: ids {string.Join(',', gsp.Ids)}");
+                // DLC fighters: one PlayerParamDLC<id>.bin per fighter in the installed packages; each must be listed, named, with a slot.
+                var dlcDir = Path.Combine(Paths.UserData, "0000000000000000", "5451087D", "00000002");
+                var dlcIds = Directory.Exists(dlcDir)
+                    ? Directory.GetFiles(dlcDir, "PlayerParamDLC*.bin", SearchOption.AllDirectories)
+                        .Select(f => int.TryParse(Path.GetFileNameWithoutExtension(f)[14..], out var n) ? n : -1).Where(n => n > 0).Distinct().OrderBy(n => n).ToList()
+                    : new List<int>();
+                if (dlcIds.Count > 0)
+                {
+                    var slots = r.SelectMany(Tabs.MusicTab.Slots).ToList();
+                    var missing = dlcIds.Where(id => !slots.Any(s => s.Ids.Contains(id))).ToList();
+                    Check("DLC fighters listed (one slot each)", missing.Count == 0 && slots.Count(s => s.Ids.Any(dlcIds.Contains)) == dlcIds.Count,
+                        $"{dlcIds.Count} installed" + (missing.Count > 0 ? ", missing " + string.Join(',', missing) : ""));
+                    foreach (var s in slots.Where(s => s.Ids.Any(dlcIds.Contains)).OrderBy(s => s.Ids[0])) log.Add($"INFO DLC {s.Ids[0]}: {s.Name}");
+                }
+                else log.Add($"INFO no DLC installed in {Paths.UserData}, DLC roster not tested");
             }
             else log.Add("INFO no game files here, roster not tested");
         }

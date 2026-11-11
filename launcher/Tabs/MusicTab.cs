@@ -15,13 +15,17 @@ public class MusicTab : ILauncherTab
     }
 
     /// <summary>One list slot per promotion: game ids 300-399 are the PRIDE versions, the rest below 1000 the UFC ones.
-    /// Ultimate Fights mode versions (1000+) are left alone (they keep the game's music).</summary>
+    /// Ultimate Fights mode versions (1000+) are left alone (they keep the game's music); DLC fighters (1300+) get their own slot.</summary>
     // Extra versions the mod pack adds under the same name (legacy roster): each gets its own slot.
     static readonly Dictionary<int, string> VersionNames = new() {
         [141] = "Classic", [193] = "Classic", [194] = "Prime", [195] = "Prime", [197] = "Prime", [199] = "Rookie" };
 
     internal static IEnumerable<RosterFighter> Slots(RosterFighter f)
     {
+        // DLC fighters (ids 1300+, from the installed packages): one slot each; "(DLC)" only when the name is also a disc fighter.
+        bool disc = f.Ids.Any(i => !f.DlcIds.Contains(i) && i < 1000);
+        foreach (var i in f.DlcIds.OrderBy(i => i))
+            yield return new RosterFighter(disc || f.DlcIds.Count > 1 ? $"{f.Name} (DLC{(f.DlcIds.Count > 1 ? " " + i : "")})" : f.Name, new() { i });
         var ufc = f.Ids.Where(i => i < 1000 && (i < 300 || i > 399)).OrderBy(i => i).ToList();
         var pride = f.Ids.Where(i => i >= 300 && i <= 399).ToList();
         var main = ufc.Where(i => !VersionNames.ContainsKey(i)).ToList();
@@ -141,7 +145,7 @@ public class MusicTab : ILauncherTab
         try
         {
             if (!Paths.AssetsReady) throw new FileNotFoundException("Set up the game files first (Setup tab): the fighter list is read from them.");
-            var roster = Roster.Load(Paths.Assets, Paths.Mods);
+            var roster = Roster.Load(Paths.Assets, Paths.Mods, userData: Paths.UserData);
             rows = roster.SelectMany(Slots).OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).Select(f => new Row { F = f }).ToList();
         }
         catch (Exception ex) { rows = new(); rosterError = ex.Message; }
