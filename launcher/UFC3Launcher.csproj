@@ -18,6 +18,10 @@
     <DebugType>none</DebugType>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Art\banner-gloves.png" LogicalName="Art.banner-gloves.png" />
+    <EmbeddedResource Include="Art\sidebar-glove.png" LogicalName="Art.sidebar-glove.png" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
 </Project>

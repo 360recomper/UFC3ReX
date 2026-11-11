@@ -4,7 +4,7 @@ using System.Drawing.Text;
 namespace UFC3Launcher.Tabs;
 
 // LAUNCHER-UI: window chrome. Left sidebar navigation (replaces the TabControl), page titles, the Play banner and the
-// dark message box. All artwork is drawn here at runtime (gradients, shapes, text): no game art, logos or image files.
+// dark message box. Gradients, shapes and text are drawn at runtime; the glove art is two embedded PNGs (Art/).
 
 /// <summary>Sidebar + page area. SelectedIndex / SelectedIndexChanged work like the old TabControl's.</summary>
 public sealed class NavHost : Control
@@ -98,7 +98,7 @@ public sealed class NavHost : Control
             g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
             // brand: a small glove mark + the name
             float cx = Theme.S(34), cy = Theme.S(46);
-            Art.Gloves(g, new PointF(cx, cy), Theme.S(42));
+            Art.Draw(g, Art.Side, new PointF(cx, cy), Theme.S(42));
             using var sf = new StringFormat(StringFormat.GenericTypographic);
             var f1 = Theme.Heavy(11.5f, FontStyle.Italic);
             var f1b = Theme.Heavy(8.5f, FontStyle.Italic);
@@ -221,86 +221,38 @@ sealed class PageTitle : Control
     }
 }
 
-/// <summary>Shapes shared by the banner and the sidebar mark (own design).</summary>
+/// <summary>Glove artwork shared by the banner and the sidebar mark: two PNGs embedded in the exe (ComfyUI-made, transparent background).</summary>
 static class Art
 {
-    /// <summary>A pair of open-finger MMA gloves (padded knuckles, bare fingertips), red and black with a light highlight. Own vector drawing.
-    /// c = centre of the pair, h = height of the pair in pixels.</summary>
-    public static void Gloves(Graphics g, PointF c, float h)
+    static Bitmap? banner, side;
+    static Bitmap Load(string name)
     {
-        var state = g.Save();
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        float k = h / 120f;
-        for (int side = -1; side <= 1; side += 2)
-        {
-            var s2 = g.Save();
-            g.TranslateTransform(c.X + side * 25f * k, c.Y + 2f * k);
-            g.RotateTransform(side * 16f);
-            g.ScaleTransform(side * k, k);   // mirror for the right glove
-            g.TranslateTransform(-50f, -60f);
-            Glove(g, side < 0 ? 0 : 1);
-            g.Restore(s2);
-        }
-        g.Restore(state);
+        using var s = typeof(Art).Assembly.GetManifestResourceStream(name)!;
+        using var raw = new Bitmap(s);
+        return new Bitmap(raw);   // detach from the stream
     }
+    /// <summary>Two raised fists, for the Play banner.</summary>
+    public static Bitmap Banner => banner ??= Load("Art.banner-gloves.png");
+    /// <summary>One glove, for the sidebar mark.</summary>
+    public static Bitmap Side => side ??= Load("Art.sidebar-glove.png");
 
-    static GraphicsPath Rr(float x, float y, float w, float hh, float r)
+    /// <summary>Draws bmp centred on c, scaled to height h (width keeps the aspect), high-quality interpolation.</summary>
+    public static void Draw(Graphics g, Bitmap bmp, PointF c, float h)
     {
-        var p = new GraphicsPath();
-        float d = r * 2;
-        p.AddArc(x, y, d, d, 180, 90); p.AddArc(x + w - d, y, d, d, 270, 90);
-        p.AddArc(x + w - d, y + hh - d, d, d, 0, 90); p.AddArc(x, y + hh - d, d, d, 90, 90);
-        p.CloseFigure();
-        return p;
-    }
-
-    // one glove in a 100 x 120 box, back of the fist, fingers curled at the top
-    static void Glove(Graphics g, int n)
-    {
-        var dark = Color.FromArgb(18, 12, 14);
-        var skin = Color.FromArgb(232, 196, 178);
-        // bare fingertips poking out above the pad
-        using (var b = new SolidBrush(skin))
-            for (int i = 0; i < 4; i++)
-            {
-                using var f = Rr(22 + i * 15f, 2, 13, 22, 6);
-                g.FillPath(b, f);
-                using var pen = new Pen(Color.FromArgb(90, dark), 1.4f);
-                g.DrawPath(pen, f);
-            }
-        // wrist cuff
-        using (var cuff = Rr(24, 78, 52, 40, 8))
-        {
-            using (var b = new SolidBrush(dark)) g.FillPath(b, cuff);
-            using var pen = new Pen(Color.FromArgb(120, Color.White), 1.6f);
-            g.DrawPath(pen, cuff);
-        }
-        using (var b = new SolidBrush(Theme.Accent)) g.FillRectangle(b, 24, 92, 52, 7);
-        // thumb
-        using (var th = Rr(2, 38, 24, 36, 11))
-        {
-            using (var b = new SolidBrush(dark)) g.FillPath(b, th);
-            using var pen = new Pen(Theme.Accent, 2f);
-            g.DrawPath(pen, th);
-        }
-        // padded knuckle body
-        using (var pad = Rr(14, 16, 74, 68, 26))
-        {
-            using (var br = new LinearGradientBrush(new RectangleF(14, 16, 74, 68), Theme.Accent, Theme.PrimaryDown, LinearGradientMode.Vertical))
-                g.FillPath(br, pad);
-            using var pen = new Pen(dark, 3f) { LineJoin = LineJoin.Round };
-            g.DrawPath(pen, pad);
-        }
-        // seams between the knuckles
-        using (var pen = new Pen(Color.FromArgb(150, dark), 2f))
-            for (int i = 1; i < 4; i++) g.DrawLine(pen, 14 + i * 18.5f, 24, 14 + i * 18.5f, 50);
-        // light highlight on the top-left of the pad
-        using (var pen = new Pen(Color.FromArgb(200, 255, 235, 230), 4.5f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
-            g.DrawArc(pen, 24, 26, 34, 34, 200, 70);
+        float w = h * bmp.Width / bmp.Height;
+        var st = g.Save();
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        g.CompositingQuality = CompositingQuality.HighQuality;
+        using var ia = new System.Drawing.Imaging.ImageAttributes();
+        ia.SetWrapMode(WrapMode.TileFlipXY);   // no edge fringe from the border pixels
+        float x0 = c.X - w / 2, y0 = c.Y - h / 2;
+        g.DrawImage(bmp, new[] { new PointF(x0, y0), new PointF(x0 + w, y0), new PointF(x0, y0 + h) }, new RectangleF(0, 0, bmp.Width, bmp.Height), GraphicsUnit.Pixel, ia);
+        g.Restore(st);
     }
 }
 
-/// <summary>Header on the Play page: gradient, glow, cage fence mesh, a drawn glove pair and the title in heavy italic type.</summary>
+/// <summary>Header on the Play page: gradient, glow, cage fence mesh, the glove art and the title in heavy italic type.</summary>
 public sealed class PlayBanner : Control
 {
     public PlayBanner()
@@ -338,7 +290,7 @@ public sealed class PlayBanner : Control
         g.Restore(clip);
 
         // glove pair at the right
-        Art.Gloves(g, new PointF(Width - Height * 0.62f, Height * 0.5f), Height * 0.8f);
+        Art.Draw(g, Art.Banner, new PointF(Width - Height * 0.80f, Height * 0.5f), Height * 0.86f);
 
         // title
         var fam = Theme.Heavy(10f, FontStyle.Italic).FontFamily;
