@@ -56,6 +56,9 @@ REXCVAR_DEFINE_BOOL(ufc3_attire_trace, false, "ufc3", "Log attire picker calls (
 REXCVAR_DEFINE_BOOL(ufc3_attire_picker, true, "ufc3",
                     "L3 on SELECT FIGHTER switches attire (needs the mod pack marker; off without it whatever this says)");
 REXCVAR_DEFINE_BOOL(ufc3_select_preview_trace, false, "ufc3", "Log the SELECT FIGHTER 3D preview slots ([selprev] lines; debug)");
+REXCVAR_DEFINE_INT32(ufc3_select_caf_delay_ms, 1500, "ufc3",
+                     "SELECT FIGHTER: ms a created fighter's 3D preview waits before its build starts (0 = stock, about 0.3 s). The build "
+                     "cannot be cancelled, so flicking through the CAF category left the next fighter on its still picture until it finished.");
 REXCVAR_DEFINE_BOOL(ufc3_select_hints, true, "ufc3", "SELECT FIGHTER button legend also lists R3 bare knuckle (and L3 attire with ufc3_attire_picker)");
 
 namespace ufc3_attire {
@@ -172,6 +175,34 @@ inline void TracePreview(uint8_t* base, uint32_t select) {
                 "ready {} speed {:.3f} | q {} {:08X} {} | mgr292 {} 296 {} | obj idx {} 1588 {} 1592 {} 28 {} 32 {} 64 {} | sel208 {}",
                 frame, sd, v[0], v[1], v[2], v[3], v[4], v[5], static_cast<int32_t>(v[6]), v[7], v[8], v[9], v[10], sp, v[12],
                 v[13], static_cast<int32_t>(v[14]), v[15], v[16], v[17], v[18], v[19], v[20], v[21], v[22], v[23]);
+  }
+}
+
+// SELECT-PREVIEW-FROZEN: a created fighter (preview id 1200-1239) is built on the CPU once its preview slot leaves state 0,
+// and that build cannot be stopped: a later landing waits in state 11 until it is done, showing the next fighter's still
+// picture (looks like a 3D model frozen on its first frame) for seconds. Stock waits a 10-tick countdown (+24) in state 0
+// before starting a load; for CAF entries keep that countdown up until the cursor has rested ufc3_select_caf_delay_ms, so a
+// flick through the CAF category never starts a build. Select frame hook, after the preview update.
+struct CafWait {
+  uint32_t pend = 0;
+  uint64_t since = 0;
+};
+inline CafWait g_caf_wait[2];
+inline void DelayCafBuild(uint8_t* base, uint32_t select) {
+  int ms = REXCVAR_GET(ufc3_select_caf_delay_ms);
+  uint32_t mgr = Load32(base, select + kPreview);
+  if (!mgr || ms <= 0) return;
+  uint64_t now = GetTickCount64();
+  for (int sd = 0; sd < 2; ++sd) {
+    uint32_t sb = mgr + sd * 96 + 52;
+    uint32_t st = Load32(base, sb), pend = Load32(base, sb + 12), id = Load32(base, sb + 32);
+    CafWait& w = g_caf_wait[sd];
+    if (st != 0 || !pend || id < 1200 || id >= 1240) {
+      w.pend = 0;
+      continue;
+    }
+    if (w.pend != pend) w = {pend, now};
+    if (now - w.since < static_cast<uint64_t>(ms) && static_cast<int32_t>(Load32(base, sb + 24)) < 4) Store32(base, sb + 24, 4);
   }
 }
 
@@ -350,6 +381,7 @@ extern "C" REX_FUNC(sub_829ABD80) {
   __imp__sub_829ABD80(ctx, base);
   uint64_t now = GetTickCount64();
   ufc3_attire::g_select_tick.store(now, std::memory_order_relaxed);
+  ufc3_attire::DelayCafBuild(base, select);
   if (REXCVAR_GET(ufc3_select_preview_trace)) ufc3_attire::TracePreview(base, select);
   ufc3_attire::g_select_online.store(ufc3_attire::OnlineMode(base, select), std::memory_order_relaxed);
   // A 3D preview that finished loading after R3 kept the gloves it was built with: redo the hands then.
