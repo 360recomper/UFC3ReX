@@ -55,6 +55,7 @@
 REXCVAR_DEFINE_BOOL(ufc3_attire_trace, false, "ufc3", "Log attire picker calls ([attire] lines; debug)");
 REXCVAR_DEFINE_BOOL(ufc3_attire_picker, true, "ufc3",
                     "L3 on SELECT FIGHTER switches attire (needs the mod pack marker; off without it whatever this says)");
+REXCVAR_DEFINE_BOOL(ufc3_select_preview_trace, false, "ufc3", "Log the SELECT FIGHTER 3D preview slots ([selprev] lines; debug)");
 REXCVAR_DEFINE_BOOL(ufc3_select_hints, true, "ufc3", "SELECT FIGHTER button legend also lists R3 bare knuckle (and L3 attire with ufc3_attire_picker)");
 
 namespace ufc3_attire {
@@ -139,6 +140,39 @@ inline uint32_t RealAttire(uint32_t id, uint32_t engine) {
   std::lock_guard<std::mutex> lock(g_mutex);
   auto it = g_slot.find(id);
   return it == g_slot.end() ? engine : it->second.real[engine & 1];
+}
+
+// Select 3D preview trace (SELECT-PREVIEW-FROZEN): per side, the preview manager's slot
+// (mgr + side*96 + 52: +0 state, +4 reload, +8 entry, +12 pending, +20 model, +32 id, +52 attire,
+// +56 fade, +84 shown, +92 ready), its queued request (mgr + side*24 + 4) and the side object.
+// One line whenever any of it changes.
+inline void TracePreview(uint8_t* base, uint32_t select) {
+  static uint32_t last[2][24] = {};
+  static uint64_t frame = 0;
+  ++frame;
+  uint32_t mgr = Load32(base, select + kPreview);
+  if (!mgr) return;
+  for (int sd = 0; sd < 2; ++sd) {
+    uint32_t sb = mgr + sd * 96 + 52, q = mgr + sd * 24 + 4;
+    uint32_t obj = Load32(base, select + kSideObj[sd]);
+    uint32_t model = Load32(base, sb + 20);
+    uint32_t speed = model ? Load32(base, model + 11732) : 0;
+    uint32_t v[24] = {Load32(base, sb), Load32(base, sb + 4), Load32(base, sb + 8), Load32(base, sb + 12), model,
+                      Load32(base, sb + 28), Load32(base, sb + 32), Load32(base, sb + 52), Load32(base, sb + 56),
+                      Load32(base, sb + 84), Load32(base, sb + 92), speed, Load32(base, q), Load32(base, q + 4),
+                      Load32(base, q + 8), Load32(base, mgr + 292), Load32(base, mgr + 296),
+                      obj ? Load32(base, obj + 20) : 0, obj ? Load32(base, obj + 1588) : 0, obj ? Load32(base, obj + 1592) : 0,
+                      obj ? Load32(base, obj + 28) : 0, obj ? Load32(base, obj + 32) : 0, obj ? Load32(base, obj + 64) : 0,
+                      Load32(base, select + 208)};
+    if (std::memcmp(v, last[sd], sizeof(v)) == 0) continue;
+    std::memcpy(last[sd], v, sizeof(v));
+    float sp;
+    std::memcpy(&sp, &speed, 4);
+    REXLOG_INFO("[selprev] f{} side {} st {} rel {} cur {:08X} pend {:08X} model {:08X} vis {} id {} att {} fade {} shown {} "
+                "ready {} speed {:.3f} | q {} {:08X} {} | mgr292 {} 296 {} | obj idx {} 1588 {} 1592 {} 28 {} 32 {} 64 {} | sel208 {}",
+                frame, sd, v[0], v[1], v[2], v[3], v[4], v[5], static_cast<int32_t>(v[6]), v[7], v[8], v[9], v[10], sp, v[12],
+                v[13], static_cast<int32_t>(v[14]), v[15], v[16], v[17], v[18], v[19], v[20], v[21], v[22], v[23]);
+  }
 }
 
 inline std::atomic<uint64_t> g_select_tick{0};  // last frame of the select screen
@@ -245,6 +279,9 @@ inline void CaptionsForSave(uint8_t* base, bool after) {
 // and what this engine attire stands for from now on. Runs right after sub_829A6EB0 on the same landing.
 extern "C" REX_FUNC(sub_8290A770) {
   uint32_t side = ctx.r4.u32 ? 1 : 0, id = ctx.r6.u32, engine = ctx.r8.u32 & 1;
+  if (REXCVAR_GET(ufc3_select_preview_trace))
+    REXLOG_INFO("[selprev] load side {} entry {:08X} id {} other {} attire {} r9 {} lr {:08X} st {}", side, ctx.r5.u32, ctx.r6.s32,
+                ctx.r7.s32, ctx.r8.s32, ctx.r9.s32, static_cast<uint32_t>(ctx.lr), ufc3_attire::Load32(base, ctx.r3.u32 + side * 96 + 52));
   ufc3_attire::g_side_id[side].store(id);
   if (ufc3_attire::AttireCount(id) > 2) {
     uint32_t real = ufc3_attire::g_real[side].load();
@@ -300,6 +337,7 @@ extern "C" REX_FUNC(sub_829A6EB0) {
 extern "C" REX_FUNC(sub_829A8EE8) {
   uint32_t side = ctx.r5.u32 ? 1 : 0;
   uint32_t lr = static_cast<uint32_t>(ctx.lr);
+  if (REXCVAR_GET(ufc3_select_preview_trace)) REXLOG_INFO("[selprev] landing side {} list {:08X} lr {:08X}", side, ctx.r4.u32, lr);
   ufc3_attire::g_landing[side] = {ctx.r3.u32, ctx.r4.u32};
   if (lr < 0x829ABD80 || lr >= 0x829ABFD8) ufc3_attire::g_last_side.store(static_cast<int>(side));
   __imp__sub_829A8EE8(ctx, base);
@@ -312,6 +350,7 @@ extern "C" REX_FUNC(sub_829ABD80) {
   __imp__sub_829ABD80(ctx, base);
   uint64_t now = GetTickCount64();
   ufc3_attire::g_select_tick.store(now, std::memory_order_relaxed);
+  if (REXCVAR_GET(ufc3_select_preview_trace)) ufc3_attire::TracePreview(base, select);
   ufc3_attire::g_select_online.store(ufc3_attire::OnlineMode(base, select), std::memory_order_relaxed);
   // A 3D preview that finished loading after R3 kept the gloves it was built with: redo the hands then.
   if (uint32_t pv = ufc3_attire::Load32(base, select + ufc3_attire::kPreview)) {
