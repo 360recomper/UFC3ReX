@@ -1,4 +1,4 @@
-// ufc3 - per-fighter walkout music (--ufc3_fighter_music).
+﻿// ufc3 - per-fighter walkout music (--ufc3_fighter_music).
 //
 // Audio is Wwise 2011 (bank version 62): DAT/sound/sound.pck holds the banks
 // and the streamed XMA music. Every sound goes through
@@ -92,7 +92,7 @@ constexpr uint32_t kTaleOfTape = 0x19152BAD;
 // 32 s delay and a 2 s fade, so the stock song is silent 34 s after the
 // walkout starts, before the PRIDE ring intro (35.3 s) and the UFC
 // tale-of-the-tape screen (36.8 s). Our track ends at the same moment.
-constexpr float kWalkoutMusicEnd = 34.0f;
+constexpr float kWalkoutMusicEnd = 35.0f;  // user 2026-11-10: one second past the stock 34 s, still before PRIDE announcer / UFC tale of the tape
 
 using ufc3_music::MusicPlayer;
 
