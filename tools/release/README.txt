@@ -41,6 +41,11 @@ GRAPHICS
   than the window (for example 1x on a 1080p or bigger screen); a picture as big as the window is
   not changed.
 
+WHAT'S NEW IN 1.1.8
+  - Fix: the launcher's Music tab now lists DLC fighters (Alistair Overeem, Nick Diaz, Chan Sung Jung and the other
+    downloadable fighters you installed), so you can give them a walkout song too. Launcher-only fix: the game itself
+    is unchanged from 1.1.7.
+
 WHAT'S NEW IN 1.1.7
   - New Music tab in the launcher: pick any fighter (UFC and PRIDE versions, mod-pack fighters included), choose your
     own song (mp3, m4a, flac, wav, wma), drag the 35 s box to the part you want and hear it right away. Save cuts that
