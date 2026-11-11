@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <mutex>
 #include <thread>
@@ -44,14 +45,18 @@ class MusicPlayer {
   }
 
   // Starts `path` from the beginning (stopping any current track at once).
-  void Play(const std::filesystem::path& path, float volume, bool loop) {
+  // `end_at` > 0: fade out over `end_fade` seconds so the track is silent
+  // `end_at` seconds of playback after the start (paused time not counted).
+  void Play(const std::filesystem::path& path, float volume, bool loop, float end_at = 0.0f,
+            float end_fade = 1.0f) {
     std::lock_guard lock(mutex_);
     Join();
     stop_.store(false);
     abort_.store(false);
     paused_.store(false);
     playing_.store(true);
-    thread_ = std::thread([this, path, volume, loop] { Run(path, volume, loop); });
+    thread_ = std::thread(
+        [this, path, volume, loop, end_at, end_fade] { Run(path, volume, loop, end_at, end_fade); });
   }
 
   // Fades the current track out over `fade` seconds (0 = cut). Never blocks:
@@ -79,11 +84,11 @@ class MusicPlayer {
     thread_.join();
   }
 
-  void Run(std::filesystem::path path, float volume, bool loop) {
+  void Run(std::filesystem::path path, float volume, bool loop, float end_at, float end_fade) {
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     bool com = SUCCEEDED(hr);
     if (SUCCEEDED(MFStartup(MF_VERSION, MFSTARTUP_LITE))) {
-      Stream(path, volume, loop);
+      Stream(path, volume, loop, end_at, end_fade);
       MFShutdown();
     } else {
       REXLOG_WARN("[music] Media Foundation startup failed");
@@ -92,7 +97,8 @@ class MusicPlayer {
     playing_.store(false);
   }
 
-  void Stream(const std::filesystem::path& path, float volume, bool loop) {
+  void Stream(const std::filesystem::path& path, float volume, bool loop, float end_at,
+              float end_fade) {
     IMFSourceReader* reader = nullptr;
     if (FAILED(MFCreateSourceReaderFromURL(path.c_str(), nullptr, &reader))) {
       REXLOG_WARN("[music] cannot open {} (unsupported format?)", path.string());
@@ -146,6 +152,7 @@ class MusicPlayer {
     int next = 0;
     bool eof = false;
     float fade_left = -1.0f, fade_total = 0.0f;
+    auto fade_tick = std::chrono::steady_clock::now();
     int empty_loops = 0;
     bool voice_paused = false;
     while (!abort_.load()) {
@@ -162,17 +169,32 @@ class MusicPlayer {
         Sleep(10);
         continue;
       }
+      XAUDIO2_VOICE_STATE state;
+      voice->GetState(&state);
+      // Scheduled end: start the fade so the track is silent at `end_at`
+      // seconds of playback (SamplesPlayed does not advance while paused).
+      if (end_at > 0.0f && !stop_.load() && fade_left < 0.0f) {
+        const float played = static_cast<float>(state.SamplesPlayed) / rate;
+        if (played >= end_at - end_fade) {
+          REXLOG_INFO("[music] scheduled end: fading out at {:.2f} s over {:.2f} s", played,
+                      end_fade);
+          fade_seconds_.store(end_fade);
+          stop_.store(true);
+        }
+      }
       if (stop_.load() && fade_left < 0.0f) {
         fade_total = fade_left = fade_seconds_.load();
+        fade_tick = std::chrono::steady_clock::now();
         if (fade_left <= 0.0f) break;
       }
       if (fade_left >= 0.0f) {
-        fade_left -= 0.01f;
+        // Wall-clock fade: loop passes that decode take longer than 10 ms.
+        auto now = std::chrono::steady_clock::now();
+        fade_left -= std::chrono::duration<float>(now - fade_tick).count();
+        fade_tick = now;
         if (fade_left <= 0.0f) break;
         voice->SetVolume(volume * fade_left / fade_total);
       }
-      XAUDIO2_VOICE_STATE state;
-      voice->GetState(&state, XAUDIO2_VOICE_NOSAMPLESPLAYED);
       if (eof && state.BuffersQueued == 0) break;
       if (eof || state.BuffersQueued >= kRing - 1) {
         Sleep(10);

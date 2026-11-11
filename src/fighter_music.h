@@ -20,10 +20,11 @@
 // "none" (no music node: the container plays nothing, which the game already
 // does for many states) right before the play event, post the event as usual
 // so the walkout's timing and callbacks are untouched, and stream the user's
-// file on the host (music_player.h). The track stops when Wwise reports the
-// end of that playing ID to the game's event callback (sub_827D6740), i.e.
-// whenever the game stops its own walkout music (UFC), or at the ring intro /
-// round start events (PRIDE, whose walkout events never end), and pauses with
+// file on the host (music_player.h). The track fades out to end 34 s after
+// the walkout starts, like the game's own song (kWalkoutMusicEnd; toml
+// walkout_end overrides). As fallbacks it stops when Wwise reports the end
+// of that playing ID to the game's event callback (sub_827D6740), or at the
+// tale-of-the-tape / ring intro / round start events, and pauses with
 // the game's "pause_all" / "resume_all" events. Fighters without a mapping keep the
 // vanilla track.
 
@@ -82,6 +83,16 @@ constexpr uint32_t kRingIntro = 0x9DE3B203;  // announcer opens the ring intro a
                                              // (PRIDE: 35 s into the 2nd walkout; UFC: 8 s after
                                              // end-of-event)
 constexpr uint32_t kRoundStart = 0xF73D6511;  // round start (with B2459618 / BF56DC37 on the corners)
+// UFC: the tale-of-the-tape screen opens with 19152BAD (+ 9F300389, which
+// starts the tape music, and 0DC95C19), 36.8 s into the red walkout.
+constexpr uint32_t kTaleOfTape = 0x19152BAD;
+// The game's own walkout music ends on a timer, not on any of the events
+// above: every walkout event (red / blue, UFC and PRIDE Alt) holds a Stop
+// action on its music switch container (038A7797 red, 3AE62EBC blue) with a
+// 32 s delay and a 2 s fade, so the stock song is silent 34 s after the
+// walkout starts, before the PRIDE ring intro (35.3 s) and the UFC
+// tale-of-the-tape screen (36.8 s). Our track ends at the same moment.
+constexpr float kWalkoutMusicEnd = 34.0f;
 
 using ufc3_music::MusicPlayer;
 
@@ -98,6 +109,7 @@ struct Config {
   bool loaded = false;
   float volume = 1.0f;
   float fade_out = 1.0f;
+  float walkout_end = kWalkoutMusicEnd;  // 0 = no scheduled end (event stops only)
   bool loop = true;
   std::unordered_map<uint32_t, std::string> tracks;  // fighter id -> file
   std::string any;                                   // "*": every unmapped fighter
@@ -152,6 +164,9 @@ inline void Refresh(Config& cfg) {
   cfg.volume = std::clamp(cfg.volume, 0.0f, 4.0f);
   cfg.fade_out = std::clamp(static_cast<float>(tbl["fade_out"].value_or(1.0)), 0.0f, 10.0f);
   cfg.loop = tbl["loop"].value_or(true);
+  cfg.walkout_end = std::clamp(
+      static_cast<float>(tbl["walkout_end"].value_or(static_cast<double>(kWalkoutMusicEnd))), 0.0f,
+      600.0f);
   if (auto* fighters = tbl["fighters"].as_table()) {
     for (auto&& [key, val] : *fighters) {
       auto file = val.value<std::string>();
@@ -189,9 +204,9 @@ inline void Refresh(Config& cfg) {
       }
     }
   }
-  REXLOG_INFO("[fighter_music] loaded {}: {} fighter(s){}, volume {}, loop {}",
+  REXLOG_INFO("[fighter_music] loaded {}: {} fighter(s){}, volume {}, loop {}, walkout end {} s",
               cfg.file.string(), cfg.tracks.size(), cfg.any.empty() ? "" : " + default",
-              cfg.volume, cfg.loop);
+              cfg.volume, cfg.loop, cfg.walkout_end);
 }
 
 struct State {
@@ -252,11 +267,14 @@ extern "C" REX_FUNC(sub_82F19390) {
     if (id == fm::kEntranceBlue || id == fm::kEntranceBlueAlt) corner = 1;
     if (id == fm::kPauseAll) fm::MusicPlayer::Get().Pause(true);
     if (id == fm::kResumeAll) fm::MusicPlayer::Get().Pause(false);
-    if (id == fm::kRingIntro || id == fm::kRoundStart) {
+    if (id == fm::kRingIntro || id == fm::kRoundStart || id == fm::kTaleOfTape) {
       fm::State& s = fm::Get();
-      if (s.playing_id.exchange(0)) {
+      if (s.playing_id.exchange(0) && fm::MusicPlayer::Get().IsPlaying()) {
         REXLOG_INFO("[fighter_music] stopped at {} ({:08X})",
-                    id == fm::kRingIntro ? "ring intro" : "round start", id);
+                    id == fm::kRingIntro    ? "ring intro"
+                    : id == fm::kTaleOfTape ? "tale of the tape"
+                                            : "round start",
+                    id);
         fm::MusicPlayer::Get().Stop(s.fade_out.load());
       }
     }
@@ -294,7 +312,8 @@ extern "C" REX_FUNC(sub_82F19390) {
   if (track) {
     st.playing_id.store(ctx.r3.u32);
     std::lock_guard relock(st.mutex);
-    fm::MusicPlayer::Get().Play(*track, st.cfg.volume, st.cfg.loop);
+    fm::MusicPlayer::Get().Play(*track, st.cfg.volume, st.cfg.loop, st.cfg.walkout_end,
+                                st.cfg.fade_out);
   }
   if (REXCVAR_GET(ufc3_trace_sound)) {
     PPCContext t = ctx;
@@ -328,7 +347,8 @@ extern "C" REX_FUNC(sub_827D6740) {
   if (ctx.r3.u32 == fm::kAkEndOfEvent && ctx.r4.u32) {
     uint32_t playing = fm::Load32(base, ctx.r4.u32 + 8);
     uint32_t ours = fm::Get().playing_id.load();
-    if (ours && playing == ours && fm::Get().playing_id.compare_exchange_strong(ours, 0)) {
+    if (ours && playing == ours && fm::Get().playing_id.compare_exchange_strong(ours, 0) &&
+        fm::MusicPlayer::Get().IsPlaying()) {
       REXLOG_INFO("[fighter_music] stopped at walkout end (game ended its walkout music)");
       fm::MusicPlayer::Get().Stop(fm::Get().fade_out.load());
     }
