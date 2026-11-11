@@ -64,12 +64,12 @@ public static class Music
 
     // ------------------------------------------------------------------ audio
 
-    /// <summary>How long a walkout lasts in game (measured from play logs: 36.6 s and 37.9 s). The game stops the song then.</summary>
-    public const double WalkoutSeconds = 42;   // longest measured (UFC 41.6 s, PRIDE 35.3 s); the game stops the song at the right moment
+    /// <summary>How much of the song plays at a walkout: the game ends our track at 35 s (fade 34-35, src/fighter_music.h kWalkoutMusicEnd).</summary>
+    public const double WalkoutSeconds = 35;   // matches kWalkoutMusicEnd; the box shows exactly what plays
     /// <summary>Saved after the walkout length, in case a walkout runs a bit long.</summary>
     public const double SaveTailSeconds = 0;   // PRIDE never signals the walkout end: the song must end on its own
     public const double SaveFadeSeconds = 2;
-    /// <summary>Length of the saved m4a at most (45 s).</summary>
+    /// <summary>Length of the saved m4a at most (35 s).</summary>
     public const double SaveSeconds = WalkoutSeconds + SaveTailSeconds;
 
     /// <summary>Whole-song overview: loudest negative/positive sample per 50 ms, mono mix. Computed once per chosen song.</summary>

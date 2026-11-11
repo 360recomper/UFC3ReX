@@ -41,6 +41,16 @@ GRAPHICS
   than the window (for example 1x on a 1080p or bigger screen); a picture as big as the window is
   not changed.
 
+WHAT'S NEW IN 1.1.7
+  - New Music tab in the launcher: pick any fighter (UFC and PRIDE versions, mod-pack fighters included), choose your
+    own song (mp3, m4a, flac, wav, wma), drag the 35 s box to the part you want and hear it right away. Save cuts that
+    part for the walkout; your own file is never changed.
+  - Your walkout song now fades out at about 35 s, like the game's own walkout music, so it no longer runs into the
+    announcer or the tale of the tape.
+  - Fix: custom walkout music kept playing through PRIDE fights. It now stops when the ring intro starts.
+  - Fix: on SELECT FIGHTER, flicking through created fighters and back could leave the next fighter's 3D model
+    frozen for a few seconds. A created fighter's preview now loads once the cursor rests on it.
+
 WHAT'S NEW IN 1.1.6
   - Fix: Steam Deck / Linux (Proton): picking the disc image said there was not enough free space even with plenty
     free. The launcher now checks the space of the folder the game goes into. The game itself is unchanged from 1.1.4.
