@@ -1,4 +1,4 @@
-// ufc3 - Ultimate difficulty in Career is selectable from the start.
+// ufc3 - Ultimate difficulty in Career and Title Defense mode are selectable from the start (no setting).
 //
 // The Career difficulty list (script widget "DifficultyListSTR", class vtable
 // 0x82131380, items Beginner / Experienced / Advanced / Expert / Ultimate) is
@@ -41,4 +41,24 @@ extern "C" REX_FUNC(sub_82B10680) {
   sys = _byteswap_ulong(sys);
   REXLOG_INFO("[ultimate] career difficulty list: save unlock mask {:02X}, Ultimate item {:08X} on",
               sys ? base[sys + 0x1909C] : 0, item);
+}
+
+// Title Defense (Game Modes list) from the start, same rule: nothing written to the save.
+//
+// The main menu enables Game Modes item 2 (Title Defense) with the word at [sys+0x118D4] (sub_829391B0 passes it
+// as the enable flag to sub_82938338), and its StartTitleDefenseDialog binding (sub_829376E8) opens dialog 2012
+// (the "locked" notice) instead of starting the mode when the word is 0. Both read it only through the getter
+// sub_82974888, so the getter answers "unlocked" (1) when the save says 0.
+REX_EXTERN(__imp__sub_82974888);  // save: Title Defense unlocked word
+
+extern "C" REX_FUNC(sub_82974888) {
+  __imp__sub_82974888(ctx, base);
+  if (ctx.r3.u32 == 0) {
+    static bool logged = false;
+    if (!logged) {
+      logged = true;
+      REXLOG_INFO("[ultimate] Title Defense: save word 0 -> unlocked (lr {:08X})", uint32_t(ctx.lr));
+    }
+    ctx.r3.u64 = 1;
+  }
 }
