@@ -9,9 +9,11 @@
 #include <rex/rex_app.h>
 #include <rex/system/gpu_plugin.h>
 
+#include "config_check.h"
 #include "ufc3_paths.h"
 #include "mod_pack.h"
 #include "native/ufc_native.h"
+#include <algorithm>
 #include <atomic>
 #include <thread>
 #if defined(UFC3_NATIVE_HOOKS)
@@ -137,11 +139,19 @@ class Ufc3App : public rex::ReXApp {
         std::filesystem::is_directory(exe_dir / "mods", ec)) {
       // Cvars are UTF-8: path::string() is the ANSI codepage, and the SDK's
       // to_path() threw utf8::invalid_utf8 on it (GitHub #3: a Turkish "Desktop" folder).
-      rex::cvar::SetFlagByName("mods_root", rex::path_to_utf8(exe_dir / "mods"));
+      // Forward slashes: the SDK's SaveConfig (any F4 quick-setting change) writes this back into
+      // ufc3.toml unescaped, and "C:\Games\..." there is an invalid TOML escape that made the game
+      // drop the whole file on the next start (player report 2026-11-12, src/config_check.h).
+      std::string mods = rex::path_to_utf8(exe_dir / "mods");
+      std::replace(mods.begin(), mods.end(), '\\', '/');
+      rex::cvar::SetFlagByName("mods_root", mods);
     }
     ufc3_paths::ResolvedGameDataRoot() = paths.game_data_root;
     ufc3_paths::ResolvedUserDataRoot() = paths.user_data_root;
   }
+
+  // ufc3.toml: say whether it loaded, was repaired, or is unusable (src/config_check.h).
+  void OnPostInitLogging() override { ufc3_config_check::LogConfigCheck(); }
 
   // ufc3_renderer is read once, here; nothing switches renderers later (src/native/ufc_native.h).
   static void LatchRenderer() {

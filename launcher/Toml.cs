@@ -23,6 +23,8 @@ public class Toml
         var v = lines[i][(lines[i].IndexOf('=') + 1)..].Trim();
         int hash = v.IndexOf(" #", StringComparison.Ordinal);
         if (hash >= 0 && !v.StartsWith('"')) v = v[..hash].Trim();
+        // A "..." value is a TOML basic string: undo the escapes SetStr writes.
+        if (v.Length >= 2 && v[0] == '"' && v[^1] == '"') return v[1..^1].Replace("\\\"", "\"").Replace("\\\\", "\\");
         return v.Trim('"');
     }
 
@@ -38,7 +40,9 @@ public class Toml
     }
     public void Set(string key, int v) => Set(key, v.ToString());
     public void Set(string key, bool v) => Set(key, v ? "true" : "false");
-    public void SetStr(string key, string v) => Set(key, "\"" + v + "\"");
+    /// <summary>Escaped: a raw backslash (a Windows path) or quote is invalid TOML, and the game then drops the whole
+    /// file (every setting at its default; player report 2026-11-12).</summary>
+    public void SetStr(string key, string v) => Set(key, "\"" + v.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"");
 
     public void Save() => File.WriteAllText(Paths.Toml, string.Join(Environment.NewLine, lines) + Environment.NewLine, new UTF8Encoding(false));
 }
