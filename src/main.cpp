@@ -16,6 +16,7 @@
 #include "physical_heap.h"
 #include "fighter_music.h"
 #include "unlock_all.h"
+#include "caf_points.h"
 #include "pride_range.h"
 #include "dialogue_trace.h"
 #include "dlc_sound_banks.h"
@@ -25,5 +26,6 @@
 #include "skip_trace.h"
 #include "steady_skin_light.h"
 #include "venues.h"
+#include "test_pad.h"
 
 REX_DEFINE_APP(ufc3, Ufc3App::Create)

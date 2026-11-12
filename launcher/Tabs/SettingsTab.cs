@@ -91,6 +91,7 @@ public class SettingsTab : ILauncherTab
         col.Controls.Add(Ui.Head("Unlocks"));
         col.Controls.Add(Check("ufc3_unlock_all", "Unlock everything", false, "Every fighter and unlock-shop item counts as unlocked. Your save is not changed."));
         col.Controls.Add(Check("ufc3_free_unlock_points", "Unlock shop items are free", false, "Buying does not spend unlock points."));
+        col.Controls.Add(Check("ufc3_caf_max_points", "Max stats for created fighters", false, "Create-A-Fighter: raising attributes and skills costs no points, so every stat can go up to its limit for the weight class. Not in career mode. Your save stays valid."));
 
         col.Controls.Add(Ui.Head("Mods"));
         cap.ValueChanged += (_, _) => { if (!loading) Write(t => t.Set("ufc3_roster_cap", (int)cap.Value)); };
