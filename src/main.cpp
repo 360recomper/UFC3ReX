@@ -13,6 +13,7 @@
 #include "cutscene_60.h"
 #include "legacy_roster.h"
 #include "heap_trace.h"
+#include "physical_heap.h"
 #include "fighter_music.h"
 #include "unlock_all.h"
 #include "pride_range.h"
