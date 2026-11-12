@@ -566,7 +566,7 @@ inline void Begin(const Package& p, const char* why) {
   {
     std::lock_guard lock(s.mutex);
     s.active[key] = p;
-    s.active_count = int(s.active.size());
+    ++s.active_count;  // counts down only when Commit has removed the marker
   }
   double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
   REXLOG_INFO("[save] {}: save started ({}); previous save backed up in {:.1f} ms", p.name, why, ms);
@@ -584,7 +584,6 @@ inline void Commit(const std::string& key, const char* why) {
     for (auto h = s.handles.begin(); h != s.handles.end();) {
       if (h->second == key) h = s.handles.erase(h); else ++h;
     }
-    s.active_count = int(s.active.size());
   }
   const auto t0 = std::chrono::steady_clock::now();
   std::error_code ec;
@@ -606,6 +605,8 @@ inline void Commit(const std::string& key, const char* why) {
     REXLOG_ERROR("[save] {}: the save just written fails the game's own check ({}); the previous save "
                  "stays in {}", p.name, bad, rex::path_to_utf8(p.backup()));
   }
+  // Last: a window close waiting in WaitForSaves may exit the process right after this.
+  --s.active_count;
 }
 
 inline void CommitRoot(const std::string& root, const char* why) {
@@ -872,9 +873,9 @@ UFC3_SAVE_IMPORT(XamContentCreateEx) {
     {
       std::lock_guard lock(S().mutex);
       S().active.erase(Key(p.dir));
-      S().active_count = int(S().active.size());
     }
     RestorePackage(p);
+    --S().active_count;
   }
   if (Tracing() && p.valid()) {
     REXLOG_INFO("[save] XamContentCreateEx(root='{}', file='{}', flags={:X}) -> {:08X} ({})", root,
