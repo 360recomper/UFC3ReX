@@ -5,6 +5,7 @@
 #include "ufc3_app.h"
 #include "first_run_save.h"
 #include "import_trace.h"
+#include "save_guard.h"
 #include "bare_knuckle.h"
 #include "blood.h"
 #include "cuts.h"

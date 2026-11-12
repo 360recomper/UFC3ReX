@@ -27,6 +27,10 @@
 REXCVAR_DEFINE_BOOL(ufc3_save_first_run, true, "ufc3",
                     "Save system data when the first-run prompts are finished");
 
+REXCVAR_DEFINE_BOOL(ufc3_save_test_force_system_save, false, "ufc3",
+                    "TEST ONLY: request the game's system-data save when the first-run prompts "
+                    "finish on every boot (save-robustness tests)");
+
 REX_EXTERN(__imp__sub_82975280);  // first-run dialog state machine update
 REX_EXTERN(sub_8234E5F0);         // save-params object constructor
 REX_EXTERN(sub_82A22CE8);         // save-params object init from descriptor
@@ -103,7 +107,7 @@ extern "C" REX_FUNC(sub_82975280) {
   REXLOG_DEBUG("first-run dialog state {} -> {}", before, after);
   if (after == kFinalState && sys && REXCVAR_GET(ufc3_save_first_run)) {
     uint32_t flags = Load32(base, sys + kFlagsOffset);
-    if (flags != start_flags) {
+    if (flags != start_flags || REXCVAR_GET(ufc3_save_test_force_system_save)) {
       REXLOG_INFO("first-run flags {:08X} -> {:08X}", start_flags.load(), flags);
       RequestSystemSave(ctx, base);
     }

@@ -12,6 +12,8 @@
 #include "ufc3_paths.h"
 #include "mod_pack.h"
 #include "native/ufc_native.h"
+#include <atomic>
+#include <thread>
 #if defined(UFC3_NATIVE_HOOKS)
 #include <atomic>
 #include <cstdlib>
@@ -73,6 +75,13 @@ inline constexpr const char* kUfc3BloodMapPixelShaders =
     // yVStainEffect (stain map filters).
     "A386FAFC1B0204BD,9E3DE715730B6042";
 
+// save_guard.h (crash-safe saves): defined there, included after this header in main.cpp.
+namespace ufc3_save {
+inline bool SaveInProgress();
+inline bool WaitForSaves(int ms);
+}  // namespace ufc3_save
+REXCVAR_DECLARE(int32_t, ufc3_save_close_wait_ms);
+
 class Ufc3App : public rex::ReXApp {
  public:
   using rex::ReXApp::ReXApp;
@@ -82,6 +91,26 @@ class Ufc3App : public rex::ReXApp {
     return std::unique_ptr<Ufc3App>(new Ufc3App(ctx, "ufc3",
         PPCImageConfig));
   }
+
+  // Closing the window (X, Alt+F4, the harness's WM_CLOSE) while the game is writing a save:
+  // the SDK's close path stops the guest threads and hard-exits at once, which used to cut the
+  // save off half written ("game data is damaged" next boot). Wait for the save to finish first.
+  bool OnWindowCloseRequested() override {
+    if (!ufc3_save::SaveInProgress()) return true;
+    if (close_waiting_.exchange(true)) return false;
+    const int wait_ms = REXCVAR_GET(ufc3_save_close_wait_ms);
+    REXLOG_WARN("[save] window close requested during a save; closing when it is written (max {} ms)",
+                wait_ms);
+    std::thread([this, wait_ms] {
+      const bool done = ufc3_save::WaitForSaves(wait_ms);
+      REXLOG_WARN("[save] {}; closing now", done ? "save finished" : "save still running after the wait");
+      app_context().CallInUIThread([this] {
+        if (window()) window()->RequestClose();
+      });
+    }).detach();
+    return false;
+  }
+  std::atomic<bool> close_waiting_{false};
 
   void OnConfigurePaths(rex::PathConfig& paths) override {
     // SDK v0.10 no longer defaults the game mount; use the assets folder next
