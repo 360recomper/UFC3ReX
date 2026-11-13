@@ -41,6 +41,10 @@ GRAPHICS
   than the window (for example 1x on a 1080p or bigger screen); a picture as big as the window is
   not changed.
 
+WHAT'S NEW IN 1.1.10
+  - Fix: careers could fail to load ("Career data loading failed") after a career save in 1.1.9 when using the
+    mod pack. The crash-safe saves from 1.1.9 stay on.
+
 WHAT'S NEW IN 1.1.9
   - Fix: saves are crash-safe. If the game closes, crashes or the PC loses power while it is saving, your last good
     save (careers and created fighters included) is put back on the next start instead of the "game data appears to
