@@ -41,6 +41,17 @@ GRAPHICS
   than the window (for example 1x on a 1080p or bigger screen); a picture as big as the window is
   not changed.
 
+WHAT'S NEW IN 1.1.9
+  - Fix: saves are crash-safe. If the game closes, crashes or the PC loses power while it is saving, your last good
+    save (careers and created fighters included) is put back on the next start instead of the "game data appears to
+    be damaged" message. Closing the window during a save now waits for the save to finish.
+  - Fix: a crash at the tale of the tape after skipping walkout parts with A.
+  - Fix: changing a setting with F4 in game could make the game ignore all your settings on the next start
+    (fullscreen, render scale, walkout music back to defaults). The settings file is now repaired automatically.
+  - Title Defense and the Ultimate career difficulty can be picked from the start. Your save is not changed.
+  - New launcher option, Settings > Unlocks: "Max stats for created fighters" (Create-A-Fighter stats cost no
+    points, each stat still stops at its weight-class limit; not in career mode). Off by default.
+
 WHAT'S NEW IN 1.1.8
   - Fix: the launcher's Music tab now lists DLC fighters (Alistair Overeem, Nick Diaz, Chan Sung Jung and the other
     downloadable fighters you installed), so you can give them a walkout song too. Launcher-only fix: the game itself
