@@ -26,7 +26,18 @@
 // - Boot (first content call) and every XamContentCreateEx of a package, before the game reads it:
 //   a marker left behind (the save never finished), or files that would fail the game's check while
 //   the backup passes -> the backup is copied back. The broken files are kept in
-//   ufc3-save-backup/<type>/<name>.broken-<time>/.
+//   ufc3-save-backup/<type>/<name>.broken-<time>/. Never for a package this process has already saved
+//   and closed: those files are the game's own newest save of what it holds in memory, and putting an
+//   older copy under the running game loses whatever that save added (v1.1.9: the first career save
+//   was replaced by the pre-career backup at the next mount, CARO001.DAT vanished, "Career data
+//   loading failed").
+// - A save the game finished writing whose digest is stale (the career save hashes SYSTEM.DAT on the
+//   main thread, then the content thread writes the live system data 100-250 ms later; anything that
+//   changes it in between - e.g. legacy_roster.h syncing the fighter table in the save request hook,
+//   which runs after that hash - leaves a file the game would call damaged on the next boot): the
+//   digest is recomputed with the game's own formula at XamContentClose (ufc3_save_resign), so the
+//   file holds exactly what the game wrote, signed. Only complete files: the size must match the
+//   previous good copy (SYSTEM.DAT: 0x49020).
 // - Window close (ufc3_app.h OnWindowCloseRequested): while a save is in progress the close waits for
 //   XamContentClose (up to ufc3_save_close_wait_ms), then closes.
 // The backup folder is not under a content-type folder, so the game's content enumeration never lists it.
@@ -71,6 +82,10 @@ REXCVAR_DEFINE_BOOL(ufc3_save_guard, true, "ufc3",
                     "restore it on the next boot if the save never finished");
 REXCVAR_DEFINE_BOOL(ufc3_trace_saves, false, "ufc3",
                     "Log saved-game package opens, file writes and closes");
+REXCVAR_DEFINE_BOOL(ufc3_save_resign, true, "ufc3",
+                    "Crash-safe saves: a save the game finished writing whose digest does not match "
+                    "its data (stale digest) gets the game's digest recomputed instead of being "
+                    "reported as damaged");
 REXCVAR_DEFINE_INT32(ufc3_save_close_wait_ms, 10000, "ufc3",
                      "Closing the window during a save waits this long for the save to finish");
 REXCVAR_DEFINE_INT32(ufc3_save_test_write_delay_ms, 0, "ufc3",
@@ -155,6 +170,7 @@ struct State {
   std::map<uint32_t, std::string> handles;   // guest file handle -> package key (write opens)
   std::map<uint32_t, std::string> reads;      // trace only: guest handle -> save file path (read opens)
   std::map<std::string, std::string> fresh;  // package key -> root: new package, nothing to back up
+  std::map<std::string, bool> written;       // package key: saved and closed by the game in this run
   std::once_flag recovered;
   std::atomic<int> active_count{0};
   std::atomic<int> writes{0};                // test kill counter
@@ -349,6 +365,33 @@ inline bool KnownLayoutName(std::string name) {
   for (auto* n : kNames)
     if (name == n) return true;
   return false;
+}
+
+// The game's own digest for a complete file of a known layout (SYSTEM.DAT: the system layout, the
+// other KnownLayoutName files: the data layout), written over [0x00,0x20). `expect_size` = the size
+// of the previous good copy (0 = none): a file of any other size is not "a stale digest" but a short
+// or wrong write, and is left alone. True if the file now passes.
+inline bool ResignFile(const fs::path& file, uint64_t expect_size) {
+  std::vector<uint8_t> f;
+  if (!ReadAll(file, f)) return false;
+  bool system = Upper(file.filename().string()) == "SYSTEM.DAT";
+  if (system ? f.size() != 0x49020 : f.size() <= 0x20) return false;
+  if (expect_size && f.size() != expect_size) return false;
+  uint8_t inner[32], outer[32];
+  bool ok = system ? Sha256({{f.data() + 0x20, 0x20},
+                             {f.data() + 0x80, 0x48BD8 - 0x80},
+                             {f.data() + 0x48C18, 0x49020 - 0x48C18}},
+                            inner)
+                   : Sha256({{f.data() + 0x20, f.size() - 0x20}}, inner);
+  if (!ok || !Sha256({{inner, 32}, {system ? kKeySystem : kKeyData, 16}}, outer)) return false;
+  HANDLE h = CreateFileW(file.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                         FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h == INVALID_HANDLE_VALUE) return false;
+  DWORD n = 0;
+  bool wrote = WriteFile(h, outer, 32, &n, nullptr) && n == 32;
+  FlushFileBuffers(h);
+  CloseHandle(h);
+  return wrote && CheckFile(file) == Health::kGood;
 }
 
 // Would the game accept this package? Every file of `reference` (the backup, if there is one, else the
@@ -591,17 +634,44 @@ inline void Commit(const std::string& key, const char* why) {
   if (fs::is_regular_file(p.header, ec)) FlushFile(p.header);
   std::string bad;
   bool good = PackageLooksGood(p.dir, p.dir, &bad);
+  std::string resigned;
+  if (!good && REXCVAR_GET(ufc3_save_resign)) {
+    // The game wrote every file and closed the package: a known-layout file of the right size that
+    // fails is a stale digest (see the top of the file), not a broken write.
+    for (auto it = fs::directory_iterator(p.dir, ec); !ec && it != fs::end(it); it.increment(ec)) {
+      std::error_code ec2;
+      if (!it->is_regular_file(ec2) || !KnownLayoutName(it->path().filename().string())) continue;
+      if (CheckFileCached(it->path(), nullptr) == Health::kGood) continue;
+      fs::path prev = p.backup() / it->path().filename();
+      uint64_t expect = fs::is_regular_file(prev, ec2) ? fs::file_size(prev, ec2) : 0;
+      if (ResignFile(it->path(), expect)) {
+        resigned += (resigned.empty() ? "" : ", ") + it->path().filename().string();
+      }
+    }
+    ec.clear();
+    bad.clear();
+    good = PackageLooksGood(p.dir, p.dir, &bad);
+  }
   fs::remove(p.marker(), ec);
+  {
+    std::lock_guard lock(s.mutex);
+    s.written[key] = true;
+  }
   double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
   if (good && IsReplayPackage(p.name)) {
     // Replays (12 MB each, up to 50): the backup only had to cover the save itself.
     fs::remove_all(p.backup(), ec);
     fs::remove(p.bk / (p.name + ".header"), ec);
   }
+  if (!resigned.empty()) {
+    REXLOG_WARN("[save] {}: the game wrote {} with a stale digest (its data changed after the game "
+                "hashed it); digest recomputed, the save is kept as written", p.name, resigned);
+  }
   if (good) {
     REXLOG_INFO("[save] {}: save complete ({}), flushed and verified in {:.1f} ms", p.name, why, ms);
   } else {
-    // A fully written save the game itself will reject: the next boot restores the backup.
+    // A fully written save the game itself will reject. It stays as the game wrote it while this
+    // run goes on (the game's next save rewrites it); the next boot restores the backup.
     REXLOG_ERROR("[save] {}: the save just written fails the game's own check ({}); the previous save "
                  "stays in {}", p.name, bad, rex::path_to_utf8(p.backup()));
   }
@@ -617,7 +687,12 @@ inline void CommitRoot(const std::string& root, const char* why) {
     for (auto& [k, p] : S().active)
       if (p.root.empty() || p.root == r) keys.push_back(k);
     for (auto it = S().fresh.begin(); it != S().fresh.end();) {
-      if (it->second.empty() || it->second == r) it = S().fresh.erase(it); else ++it;
+      if (it->second.empty() || it->second == r) {
+        S().written[it->first] = true;  // a new package the game created and closed in this run
+        it = S().fresh.erase(it);
+      } else {
+        ++it;
+      }
     }
   }
   for (auto& k : keys) Commit(k, why);
@@ -838,14 +913,18 @@ UFC3_SAVE_IMPORT(XamContentCreateEx) {
     p = PackageFromDir(PackageDirFor(data));
     p.root = Upper(root);
     if (p.valid()) {
-      bool active;
+      bool active, written;
       {
         std::lock_guard lock(S().mutex);
         active = S().active.count(Key(p.dir)) != 0;
+        written = S().written.count(Key(p.dir)) != 0;
       }
       uint32_t mode = flags & 0xF;
       // Not for CREATE_ALWAYS / TRUNCATE_EXISTING: the package is about to be replaced anyway.
-      if (!active && mode != 2 && mode != 5) RestorePackage(p);
+      // Not for a package the game already saved and closed in this run: its files are the game's
+      // newest save of what it holds in memory (an older copy under the running game loses that save;
+      // the v1.1.9 career bug). A broken one is still restored at the next boot, before any read.
+      if (!active && !written && mode != 2 && mode != 5) RestorePackage(p);
       // CREATE_ALWAYS / TRUNCATE_EXISTING: the SDK deletes the package folder before the game
       // writes the new one.
       if (mode == 2 || mode == 5) {
